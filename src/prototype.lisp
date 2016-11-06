@@ -27,47 +27,49 @@
       (lambda (y)
         (coerce (/ (+ y ybase) w) 'single-float)))))
 
+(defstruct point2d
+  (x 0.0 :type single-float)
+  (y 0.0 :type single-float)) 
+
 (defun convex-hull (points)
   (setf points
     (sort points
       (lambda (a b)
-        (if (/= 0 (- (zpb-ttf:x a) (zpb-ttf:x b)))
+        (if (/= 0 (- (point2d-x a) (point2d-x b)))
           t
-          (/= 0 (- (zpb-ttf:y a) (zpb-ttf:y b)))))))
+          (/= 0 (- (point2d-y a) (point2d-y b)))))))
   (labels ((half-convex (sign)
              (let ((tmp (xsubseq points 0 2)))
                (loop for i from 2 below (length points)
                  do (let ((p2 (aref points i)))
                       (loop while (>= (xlength tmp) 2)
-                            for p0 = (aref points (- (xlength tmp) 2))
-                            for p1 = (aref points (- (xlength tmp) 1))
-                            for s  = (- (* (- (zpb-ttf:x p0)
-                                              (zpb-ttf:x p1))
-                                           (- (zpb-ttf:y p2)
-                                              (zpb-ttf:y p1)))
-                                        (* (- (zpb-ttf:y p0)
-                                              (zpb-ttf:y p1))
-                                           (- (zpb-ttf:x p2)
-                                              (zpb-ttf:x p1))))
+                            for p0 = (elt tmp (- (xlength tmp) 2))
+                            for p1 = (elt tmp (- (xlength tmp) 1))
+                            for s  = (- (* (- (point2d-x p0)
+                                              (point2d-x p1))
+                                           (- (point2d-y p2)
+                                              (point2d-y p1)))
+                                        (* (- (point2d-y p0)
+                                              (point2d-y p1))
+                                           (- (point2d-x p2)
+                                              (point2d-x p1))))
                         when (> (* s sign) 0) return 0
                         do (setf tmp (xsubseq tmp 0 (1- (xlength tmp)))))
                       (xnconc tmp p2)))
                (coerce-to-sequence tmp))))
     (concatenate 'vector (half-convex 1) (reverse (half-convex -1)))))
 
-(defstruct point2d
-  (x 0.0 :type single-float)
-  (y 0.0 :type single-float))
+
 
 (defmacro vector-push-extend-to (vec &rest rest)
   `(loop for e in (list ,@rest)
          do (vector-push-extend e ,vec)))
 
 (defmacro center-x (a b)
-  `(/ (+ (point2d-x ,a) (point2d-y ,b)) 2))
+  `(float (/ (+ (point2d-x ,a) (point2d-y ,b)) 2)))
 
 (defmacro center-y (a b)
-  `(/ (+ (point2d-y ,a) (point2d-y ,b)) 2))
+  `(float (/ (+ (point2d-y ,a) (point2d-y ,b)) 2)))
 
 (defun add-path (data1 tmp1 data2 &optional (cubic 0))
   (case (length tmp1)
@@ -77,9 +79,9 @@
              (t1 (elt tmp1 1))
              (t2 (elt tmp1 2)))
          (vector-push-extend-to data1
-           (point2d-x t0) (point2d-y t0) 0 0
-           (point2d-x t1) (point2d-y t1) 0.5 0
-           (point2d-x t2) (point2d-y t2) 1 1)
+           (point2d-x t0) (point2d-y t0) 0.0 0.0
+           (point2d-x t1) (point2d-y t1) 0.5 0.0
+           (point2d-x t2) (point2d-y t2) 1.0 1.0)
          (setf tmp1 (subseq tmp1 2))))
     (4 (if (zerop cubic)
          (let ((t0 (elt tmp1 0))
@@ -87,13 +89,13 @@
                (t2 (elt tmp1 2))
                (t3 (elt tmp1 3)))
            (vector-push-extend-to data1
-             (point2d-x t0) (point2d-y t0) 0 0
-             (point2d-x t1) (point2d-y t1) 0.5 0
-             (center-x t1 t2) (center-y t1 t2) 1 1
+             (point2d-x t0) (point2d-y t0) 0.0 0.0
+             (point2d-x t1) (point2d-y t1) 0.5 0.0
+             (center-x t1 t2) (center-y t1 t2) 1.0 1.0
              
-             (center-x t1 t2) (center-y t1 t2) 0 0
-             (point2d-x t2) (point2d-y t2) 0.5 0
-             (point2d-x t3) (point2d-y t3) 1 1)
+             (center-x t1 t2) (center-y t1 t2) 0.0 0.0
+             (point2d-x t2) (point2d-y t2) 0.5 0.0
+             (point2d-x t3) (point2d-y t3) 1.0 1.0)
            (vector-push-extend (make-point2d :x (center-x t1 t2)
                                              :y (center-y t1 t2))
                                data2)
@@ -106,21 +108,21 @@
              (t4 (elt tmp1 4))
              (t5 (elt tmp1 5)))
          (vector-push-extend-to data1
-           (point2d-x t0) (point2d-y t0) 0 0
-           (point2d-x t1) (point2d-y t1) 0.5 0
-           (center-x t1 t2) (center-y t1 t2) 1 1
+           (point2d-x t0) (point2d-y t0) 0.0 0.0
+           (point2d-x t1) (point2d-y t1) 0.5 0.0
+           (center-x t1 t2) (center-y t1 t2) 1.0 1.0
            
-           (center-x t1 t2) (center-y t1 t2) 0 0
-           (point2d-x t2) (point2d-y t2) 0.5 0
-           (center-x t2 t3) (center-y t2 t3) 1 1
+           (center-x t1 t2) (center-y t1 t2) 0.0 0.0
+           (point2d-x t2) (point2d-y t2) 0.5 0.0
+           (center-x t2 t3) (center-y t2 t3) 1.0 1.0
            
-           (center-x t2 t3) (center-y t2 t3) 0 0
-           (point2d-x t3) (point2d-y t3) 0.5 0
-           (center-x t3 t4) (center-y t3 t4) 1 1
+           (center-x t2 t3) (center-y t2 t3) 0.0 0.0
+           (point2d-x t3) (point2d-y t3) 0.5 0.0
+           (center-x t3 t4) (center-y t3 t4) 1.0 1.0
 
-           (center-x t3 t4) (center-y t3 t4) 0 0
-           (point2d-x t4) (point2d-y t4) 0.5 0
-           (point2d-x t5) (point2d-y t5) 1 1)
+           (center-x t3 t4) (center-y t3 t4) 0.0 0.0
+           (point2d-x t4) (point2d-y t4) 0.5 0.0
+           (point2d-x t5) (point2d-y t5) 1.0 1.0)
          (vector-push-extend-to data2
            (make-point2d :x (center-x t1 t2)
                          :y (center-y t1 t2))
@@ -132,12 +134,49 @@
   (values data1 tmp1 data2))
 
 (defun make-data (ch font)
-  (let ((glyph (zpb-ttf:find-glyph ch font)))
+  (let* ((glyph (zpb-ttf:find-glyph ch font))
+         (gbox (zpb-ttf:bounding-box glyph))
+         (height (- (zpb-ttf:ymax gbox) (zpb-ttf:ymin gbox)))
+         (points (make-array 0 :element-type 'point2d :fill-pointer 0 :adjustable t))
+         (data1 (make-array 0 :element-type 'single-float :fill-pointer 0 :adjustable t))
+         (data2 (make-array 0 :element-type 'point2d :fill-pointer 0 :adjustable t)))
     (zpb-ttf:do-contours (contour glyph)
-      
-    )
-  )
-)
+      (zpb-ttf:do-contour-segments (p0 p1 p2) contour
+        (let* ((xs (zpb-ttf:x p0))
+               (ys (zpb-ttf:y p0))
+               (tmp1 (make-array 1 :initial-contents (list (make-point2d :x (float xs) :y (float ys)))
+                                 :element-type 'point2d :fill-pointer 0 :adjustable t)))
+          (vector-push-extend (make-point2d :x (float xs) :y (float ys)) points)
+          (vector-push-extend (make-point2d :x (float xs) :y (float ys)) data2)
+          (if (null p1)
+            (progn
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p2)) :y (float (zpb-ttf:y p2))) points)
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p2)) :y (float (zpb-ttf:y p2))) tmp1))
+            (progn
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p1)) :y (float (zpb-ttf:y p1))) points)
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p1)) :y (float (zpb-ttf:y p1))) tmp1)
+              (multiple-value-setq (data1 tmp1 data2) (add-path data1 tmp1 data2))
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p1)) :y (float (zpb-ttf:y p1))) data2)
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p2)) :y (float (zpb-ttf:y p2))) points)
+              (vector-push-extend (make-point2d :x (float (zpb-ttf:x p2)) :y (float (zpb-ttf:y p2))) tmp1)))
+          (when (> (length points) 0)
+            (vector-push-extend (make-point2d :x (float xs) :y (float ys)) tmp1)
+            (multiple-value-setq (data1 tmp1 data2) (add-path data1 tmp1 data2)))
+            (print (length data2))
+            (loop for i from 1 below (1- (length data2))
+                  do (vector-push-extend-to data1
+                       (point2d-x (elt data2 0)) (point2d-y (elt data2 0)) 0.5 0.5
+                       (point2d-x (elt data2 i)) (point2d-y (elt data2 i)) 0.5 0.5
+                       (point2d-x (elt data2 (1+ i))) (point2d-x (elt data2 (1+ i))) 0.5 0.5))
+            (print "foo")
+            (setf data2 (make-array 0 :element-type 'point2d :fill-pointer 0 :adjustable t)))))
+    (loop for i from 0 below (length data1) by 4
+          do (setf (elt data1 i) (1- (* (/ (elt data1 i) height) 50))
+                   (elt data1 (1+ i)) (1- (* (/ (elt data1 (1+ i)) height) 50))))
+    (loop for i from 0 below (length points)
+          do (setf (point2d-x (elt points i)) (1- (* (/ (point2d-x (elt points i)) height) 50))
+                   (point2d-y (elt points i)) (1- (* (/ (point2d-y (elt points i)) height) 50))))
+    (values data1 (convex-hull points))))
 
 (defun draw-character (ch font)
   (let* ((bbox (zpb-ttf:bounding-box font))
@@ -193,6 +232,10 @@
 (defmethod glut:close ((w main-window))
   (zpb-ttf:close-font-loader *font*))
 
+(defun test ()
+  (setf *font*
+    (zpb-ttf:open-font-loader "/usr/share/fonts/OTF/TakaoPGothic.ttf"))
+  (make-data #\Q *font*))
 ;(sb-profile:profile "BEZIER")
 
 ;(glut:display-window (make-instance 'main-window))
