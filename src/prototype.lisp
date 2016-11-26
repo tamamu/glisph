@@ -11,6 +11,10 @@
 
 (defvar *font*)
 
+(defmacro vector-push-extend-to (vec &rest rest)
+  `(loop for e in (list ,@rest)
+         do (vector-push-extend e ,vec)))
+
 (defun separate-contour (contour)
   (let ((curve (make-array 6 :element-type 'fixnum :fill-pointer 0 :adjustable t))
         (control (make-array 0 :element-type 'fixnum :fill-pointer 0 :adjustable t)))
@@ -30,29 +34,16 @@
                    (zpb-ttf:x next) (zpb-ttf:y next))))
     (values curve control)))
 
-(defun fill-inner (glyph)
-  (let ((bbox (zpb-ttf:bounding-box glyph)))
-    (zpb-ttf:do-contours (contour glyph)
-      (multiple-value-bind (curve control) (separate-contour contour)
-        (let ((ix (aref curve 0))
-              (iy (aref curve 1)))
-          (loop for i from 2 below (- (length curve) 2) by 2
-                do (gl:with-primitives :triangles
-                     (gl:vertex ix iy)
-                     (gl:vertex (aref curve    i   ) (aref curve (+ i 1)))
-                     (gl:vertex (aref curve (+ i 2)) (aref curve (+ i 3))))))))))
+(defun fill-vertex (glyph)
+  (zpb-ttf:do-contours (contour glyph)
+    (multiple-value-bind (curve control) (separate-contour contour)
+      (declare (ignorable control))
+      (gl:with-primitives :triangle-fan
+        (gl:vertex (aref curve 0) (aref curve 1))
+        (loop for i from 2 below (- (length curve) 2) by 2
+              do (gl:vertex (aref curve    i   ) (aref curve (+ i 1)))
+                 (gl:vertex (aref curve (+ i 2)) (aref curve (+ i 3))))))))
 
-(defun render-string (str font spacing)
-  (gl:with-pushed-matrix
-    (loop for i from 0 below (length str)
-          for cur = (zpb-ttf:find-glyph (char str i) font)
-          for prev = nil then cur
-          do (when prev
-               (gl:translate (- (zpb-ttf:kerning-offset prev cur font)
-                                (zpb-ttf:left-side-bearing cur))
-                             0 0))
-               (render-glyph cur)
-               (gl:translate (+ spacing (zpb-ttf:advance-width cur)) 0 0))))
 
 ;; !! :stencil is required !!
 (defclass main-window (glut:window)
@@ -77,7 +68,7 @@
   (gl:stencil-func :always 0 1)
   (gl:stencil-op :keep :invert :invert)
   (gl:color-mask nil nil nil nil)
-  (fill-inner glyph)
+  (fill-vertex glyph)
   (gl:stencil-func :notequal 0 1)
   (gl:stencil-op :keep :keep :keep)
   (gl:color-mask t t t t)
@@ -92,14 +83,21 @@
       (gl:vertex bx2 by2)
       (gl:vertex bx1 by2))))
 
+(defun render-string (str font spacing)
+  (gl:with-pushed-matrix
+    (loop for i from 0 below (length str)
+          for cur = (zpb-ttf:find-glyph (char str i) font)
+          for prev = nil then cur
+          do (when prev
+               (gl:translate (- (zpb-ttf:kerning-offset prev cur font)
+                                (zpb-ttf:left-side-bearing cur))
+                             0 0))
+               (render-glyph cur)
+               (gl:translate (+ spacing (zpb-ttf:advance-width cur)) 0 0))))
+
 (defun draw-string (str font size spacing)
   (gl:with-pushed-matrix
-    (let* ((bbox (zpb-ttf:bounding-box font))
-           ;(bx1 (aref bbox 0))
-           ;(by1 (aref bbox 1))
-           ;(bx2 (aref bbox 2))
-           ;(by2 (aref bbox 3))
-           (scaling (/ size (zpb-ttf:units/em font))))
+    (let* ((scaling (/ size (zpb-ttf:units/em font))))
       (gl:scale scaling scaling 1)
       (render-string str font (* spacing scaling)))))
 
