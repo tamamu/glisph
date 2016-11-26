@@ -82,6 +82,13 @@ void main(void) {
                      :mode '(:single :rgb :depth :stencil)
                      :tick-interval (round 1000 60)))
 
+(defmethod glut:reshape ((w main-window) width height)
+  (gl:viewport 0 0 width height)
+  (gl:matrix-mode :projection)
+  (gl:load-identity)
+  (glu:ortho-2d 0 width 0 height)
+  (gl:matrix-mode :modelview)
+  (gl:load-identity))
 
 (defun make-gl-array (data)
   (let* ((len (length data))
@@ -151,7 +158,7 @@ void main(void) {
           (gethash :em tbl) (zpb-ttf:units/em ,font))
     tbl))
 
-(defmacro regist-glyph (table ch)
+(defmacro regist-glyph-helper (table ch)
   `(let* ((glyph (zpb-ttf:find-glyph ,ch (gethash :font ,table)))
           (bbox (zpb-ttf:bounding-box glyph))
           (em (gethash :em ,table))
@@ -177,6 +184,10 @@ void main(void) {
                                             :buffer buffer
                                             :box-buffer box-buffer
                                             :count (/ (length vertex) 4)))))
+
+(defmacro regist-glyph (table ch)
+  `(when (null (gethash ,ch ,table))
+    (regist-glyph-helper ,table ,ch)))
 
 (defun render-glyph (vg x y z mx my mz)
   (let ((mvp (mvp-matrix x y z mx my mz)))
@@ -216,6 +227,7 @@ void main(void) {
             for ch = (char str i)
             for cvg = (gethash ch table)
             for pvg = nil then cvg
+            do (when (null cvg) (format t "~A is nil~%" ch))
             do (when pvg
                  (gl:translate (float (/ (- (zpb-ttf:kerning-offset
                                               (vglyph-source pvg)
@@ -230,9 +242,12 @@ void main(void) {
 
 (defmethod glut:display-window :before ((w main-window))
   (setf *font*
-    (zpb-ttf:open-font-loader "/usr/share/fonts/OTF/TakaoGothic.ttf"))
+    (zpb-ttf:open-font-loader "/usr/share/fonts/TTF/migu-1c-regular.ttf"))
   (setf takao-gothic (make-glyph-table *font*))
+  (loop for ch across "新しい朝が来た　希望の朝だ喜びに胸を開け大空あおげラジオの声に健やかな胸をこの香る風に開けよそれ一ニ三新しい朝のもと輝く緑さわやかに手足伸ばせ土踏みしめよラジオとともに健やかな手足この広い土に伸ばせよそれ一ニ三"
+        do (regist-glyph takao-gothic ch))
   (regist-glyph takao-gothic #\あ)
+  (gl:shade-model :flat)
 
   (let ((mvp (mvp-matrix -1.0 0.0 0.0 1.0 1.0 1.0)))
     (setf *program* (create-program +vs-source+ +fs-source+))
@@ -258,7 +273,8 @@ void main(void) {
   (when (> *alpha* 1.0)
     (setf *alpha* 0.0))
   (gl:use-program *program2*)
-  (gl:uniformf *uniform-color* (* *alpha* *alpha*) (- 1 *alpha*) *alpha* *alpha*)
+  ;(gl:uniformf *uniform-color* (* *alpha* *alpha*) (- 1 *alpha*) *alpha* *alpha*)
+  (gl:uniformf *uniform-color* 1.0 1.0 1.0 1.0)
   (gl:use-program 0)
   (glut:post-redisplay))
 
@@ -276,11 +292,20 @@ void main(void) {
 
 (defvar hoge 0)
 (defmethod glut:display ((w main-window))
-  (gl:clear-color 0.5 0.5 0.5 1.0)
+  (gl:clear-color 0.2 0.7 0.5 1.0)
   (gl:clear-stencil 0)
   (gl:clear :color-buffer-bit :stencil-buffer-bit)
 
-  (render-string takao-gothic "ああ" -1.0 -1.0 0.5 0.0)
+  (let ((size 0.15))
+    (render-string takao-gothic "新しい朝が来た　希望の朝だ" -1.0 0.8 size 0.0)
+    (render-string takao-gothic "喜びに胸を開け　大空あおげ" -1.0 0.6 size 0.0)
+    (render-string takao-gothic "ラジオの声に　健やかな胸を" -1.0 0.4 size 0.0)
+    (render-string takao-gothic "この香る風に　開けよ" -1.0 0.2 size 0.0)
+    (render-string takao-gothic "それ　一　ニ　三" -1.0 0.0 size 0.0))
+
+
+
+
 
   (gl:flush))
 
