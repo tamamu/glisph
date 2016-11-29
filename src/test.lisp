@@ -5,6 +5,9 @@
 (require 'cl-glu)
 (require 'cl-glut)
 (require 'zpb-ttf)
+(require 'cl-annot)
+
+(annot:enable-annot-syntax)
 
 ;; Glyph vertex
 (defvar +vs-source+ "#version 130
@@ -14,22 +17,33 @@ attribute vec2 attrib;
 uniform mat4 mvpMatrix;
 varying vec2 p;
 void main(void) {
-  gl_Position = mvpMatrix * vec4(vertex, 0.0, 1.0);
+  gl_Position = gl_ModelViewMatrix * vec4(vertex, 0.0, 1.0);
   p = attrib;
 }
 ")
 
 (defvar +fs-source+ "#version 130
+
 precision mediump float;
 varying vec2 p;
 void main(void) {
-  if (p.x*p.x - p.y > 0.0) {
-    discard;
-  } else {
-    gl_FragColor = vec4(1.0);
-  }
-}
-")
+    vec2 px = dFdx(p);
+    vec2 py = dFdy(p);
+    float fx = (2.0*p.x)*px.x - px.y;
+    float fy = (2.0*p.x)*py.x - py.y;
+    float sd = (p.x*p.x - p.y)/sqrt(fx*fx + fy*fy);
+    float alpha = 0.5 - sd;
+    if (alpha > 1.0) {
+        // inside
+        gl_FragColor = vec4(1.0);
+    } else if (alpha < 0.0) {
+        // outside
+        discard;
+    } else {
+        // near boundary
+        gl_FragColor = vec4(alpha);
+    }
+}")
 
 ;; Bounding box
 (defvar +vs-source2+ "#version 130
@@ -37,7 +51,7 @@ precision mediump float;
 attribute vec2 vertex;
 uniform mat4 mvpMatrix;
 void main(void) {
-    gl_Position = mvpMatrix * vec4(vertex, 0.0, 1.0);
+    gl_Position = gl_ModelViewMatrix * vec4(vertex, 0.0, 1.0);
 }
 ")
 
@@ -48,9 +62,12 @@ void main(void) {
 }
 ")
 
+(defvar *window-width* 640)
+(defvar *window-height* 480)
 (defvar *font*)
 (defvar *mouse-x* 0)
 (defvar *mouse-y* 0)
+(defvar *zoom* 1.0)
 (defvar *program* nil)
 (defvar *program2* nil)
 
@@ -78,17 +95,26 @@ void main(void) {
 
 (defclass main-window (glut:window)
   ()
-  (:default-initargs :width 640 :height 480 :title "bezier.lisp"
-                     :mode '(:single :rgb :depth :stencil)
-                     :tick-interval (round 1000 60)))
+  (:default-initargs :width *window-width*
+                     :height *window-height*
+                     :title "bezier.lisp"
+                     :mode '(:single :rgb :stencil :multisample)
+                     :tick-interval #.(round 1000 60)))
 
 (defmethod glut:reshape ((w main-window) width height)
+  (setf *window-width* width
+        *window-height* height)
   (gl:viewport 0 0 width height)
   (gl:matrix-mode :projection)
   (gl:load-identity)
-  (glu:ortho-2d 0 width 0 height)
+  ;(glu:ortho-2d 0 width 0 height)
+  (glu:perspective *zoom* (float (/ *window-width* *window-height*)) 0.01 10)
   (gl:matrix-mode :modelview)
-  (gl:load-identity))
+  (gl:load-identity)
+  (glu:look-at 0 0 1
+               0 0 0
+               0 1 0)
+  )
 
 (defun make-gl-array (data)
   (let* ((len (length data))
@@ -189,40 +215,47 @@ void main(void) {
   `(when (null (gethash ,ch ,table))
     (regist-glyph-helper ,table ,ch)))
 
-(defun render-glyph (vg x y z mx my mz)
-  (let ((mvp (mvp-matrix x y z mx my mz)))
-    (gl:enable :stencil-test)
-    (gl:stencil-func :always 0 1)
-    (gl:stencil-op :keep :invert :invert)
-    (gl:color-mask nil nil nil nil)
-    (gl:depth-mask nil)
-    (gl:use-program *program*)
-    (gl:uniform-matrix-4fv *uniform-mvp1* mvp)
-    (gl:enable-vertex-attrib-array 0)
-    (gl:enable-vertex-attrib-array 1)
-    (gl:bind-buffer :array-buffer (vglyph-buffer vg))
-    (gl:vertex-attrib-pointer 0 2 :float nil (* 4 4) 0)
-    (gl:vertex-attrib-pointer 1 2 :float nil (* 4 4) (* 4 2))
-    (gl:draw-arrays :triangles 0 (vglyph-count vg))
-    (gl:disable-vertex-attrib-array 0)
-    (gl:disable-vertex-attrib-array 1)
-    (gl:use-program 0)
-    (gl:stencil-func :notequal 0 1)
-    (gl:stencil-op :keep :keep :keep)
-    (gl:color-mask t t t t)
-    (gl:depth-mask t)
-    (gl:use-program *program2*)
-    (gl:uniform-matrix-4fv *uniform-mvp2* mvp)
-    (gl:enable-vertex-attrib-array 0)
-    (gl:bind-buffer :array-buffer (vglyph-box-buffer vg))
-    (gl:vertex-attrib-pointer 0 2 :float nil 0 0)
-    (gl:draw-arrays :triangle-fan 0 4)
-    (gl:disable-vertex-attrib-array 0)
-    (gl:use-program 0)
-    (gl:disable :stencil-test)))
+(defun set-glyph-color (r g b a)
+  (gl:use-program *program2*)
+  (gl:uniformf *uniform-color* r g b a)
+  (gl:use-program 0))
 
-(defun render-string (table str x y size spacing)
-  (let ((em (gethash :em table)))
+(defun render-glyph (vg)
+  @type vglyph vg
+  @optimize (speed 3)
+  @optimize (safety 0)
+  (gl:enable :stencil-test)
+  (gl:enable :sample-alpha-to-coverage)
+  (gl:stencil-func :always 0 1)
+  (gl:stencil-op :keep :invert :invert)
+  (gl:color-mask nil nil nil nil)
+  (gl:use-program *program*)
+  (gl:enable-vertex-attrib-array 0)
+  (gl:enable-vertex-attrib-array 1)
+  (gl:bind-buffer :array-buffer (vglyph-buffer vg))
+  (gl:vertex-attrib-pointer 0 2 :float nil #.(* 4 4) 0)
+  (gl:vertex-attrib-pointer 1 2 :float nil #.(* 4 4) #.(* 4 2))
+  (gl:draw-arrays :triangles 0 (vglyph-count vg))
+  (gl:disable-vertex-attrib-array 0)
+  (gl:disable-vertex-attrib-array 1)
+  (gl:use-program 0)
+  (gl:disable :sample-alpha-to-coverage)
+  (gl:stencil-func :notequal 0 1)
+  (gl:stencil-op :keep :keep :keep)
+  (gl:color-mask t t t t)
+  (gl:use-program *program2*)
+  (gl:enable-vertex-attrib-array 0)
+  (gl:bind-buffer :array-buffer (vglyph-box-buffer vg))
+  (gl:vertex-attrib-pointer 0 2 :float nil 0 0)
+  (gl:draw-arrays :triangle-fan 0 4)
+  (gl:disable-vertex-attrib-array 0)
+  (gl:use-program 0)
+  (gl:disable :stencil-test))
+
+(defun render-string (table str spacing)
+  @type string str
+  (gl:with-pushed-matrix
+   (let ((em (gethash :em table)))
       (loop for i from 0 below (length str)
             for ch = (char str i)
             for cvg = (gethash ch table)
@@ -234,53 +267,74 @@ void main(void) {
                                               (vglyph-source cvg)
                                               (gethash :font table))) em))
                                0 0))
-              (render-glyph cvg x y 0.0 size size 1.0)
-              (incf x (* size (+ spacing
-                         (float (/ (zpb-ttf:advance-width (vglyph-source cvg)) em))))))))
+              (render-glyph cvg)
+               (gl:translate
+                 (+ spacing (float (/ (zpb-ttf:advance-width
+                                        (vglyph-source cvg)) em)))
+                 0.0 0.0)))))
+
+(defun draw-string (table str &key (size 1.0)
+                                   (color '(1.0 1.0 1.0 1.0))
+                                   (spacing 0.0))
+  (set-glyph-color (elt color 0) (elt color 1)
+                   (elt color 2) (elt color 3))
+  (gl:with-pushed-matrix
+    (gl:scale size size 1.0)
+    (render-string table str spacing)))
 
 (defvar takao-gothic nil)
 
 (defmethod glut:display-window :before ((w main-window))
   (setf *font*
-    (zpb-ttf:open-font-loader "/usr/share/fonts/TTF/migu-1c-regular.ttf"))
+    (zpb-ttf:open-font-loader "/usr/share/fonts/OTF/TakaoGothic.ttf"))
   (setf takao-gothic (make-glyph-table *font*))
-  (loop for ch across "新しい朝が来た　希望の朝だ喜びに胸を開け大空あおげラジオの声に健やかな胸をこの香る風に開けよそれ一ニ三新しい朝のもと輝く緑さわやかに手足伸ばせ土踏みしめよラジオとともに健やかな手足この広い土に伸ばせよそれ一ニ三"
+  (loop for ch across "新しい朝が来た　希望の朝だ喜びに胸を開け大空あおげラジオの声に健やかな胸をこの香る風に開けよそれ一ニ三"
         do (regist-glyph takao-gothic ch))
-  (regist-glyph takao-gothic #\あ)
   (gl:shade-model :flat)
-
-  (let ((mvp (mvp-matrix -1.0 0.0 0.0 1.0 1.0 1.0)))
-    (setf *program* (create-program +vs-source+ +fs-source+))
-    (gl:use-program *program*)
-    (gl:bind-attrib-location *program* 0 "vertex")
-    (gl:bind-attrib-location *program* 1 "attrib")
-    (setf *uniform-mvp1* (gl:get-uniform-location *program* "mvpMatrix"))
-    (gl:uniform-matrix-4fv *uniform-mvp1* mvp)
-    (gl:use-program 0)
-
-    (setf *program2* (create-program +vs-source2+ +fs-source2+))
-    (gl:use-program *program2*)
-    (gl:bind-attrib-location *program2* 0 "vertex")
-    (setf *uniform-color* (gl:get-uniform-location *program2* "color"))
-    (gl:uniformf *uniform-color* 1.0 0.0 0.0 1.0)
-    (setf *uniform-mvp2* (gl:get-uniform-location *program2* "mvpMatrix"))
-    (gl:uniform-matrix-4fv *uniform-mvp2* mvp)
-    (gl:use-program 0)))
-
-(defvar *alpha* 0.0)
-(defmethod glut:tick ((w main-window))
-  (incf *alpha* 0.05)
-  (when (> *alpha* 1.0)
-    (setf *alpha* 0.0))
-  (gl:use-program *program2*)
-  ;(gl:uniformf *uniform-color* (* *alpha* *alpha*) (- 1 *alpha*) *alpha* *alpha*)
-  (gl:uniformf *uniform-color* 1.0 1.0 1.0 1.0)
+  (setf *program* (create-program +vs-source+ +fs-source+))
+  (gl:use-program *program*)
+  (gl:bind-attrib-location *program* 0 "vertex")
+  (gl:bind-attrib-location *program* 1 "attrib")
   (gl:use-program 0)
+
+  (setf *program2* (create-program +vs-source2+ +fs-source2+))
+  (gl:use-program *program2*)
+  (gl:bind-attrib-location *program2* 0 "vertex")
+  (setf *uniform-color* (gl:get-uniform-location *program2* "color"))
+  (gl:uniformf *uniform-color* 1.0 0.0 0.0 1.0)
+  (gl:use-program 0))
+
+
+
+(defmethod glut:tick ((w main-window))
+  (glut:post-redisplay))
+
+(defmethod glut:idle ((w main-window))
+  (sleep (/ 1.0 60.0))
   (glut:post-redisplay))
 
 (defmethod glut:passive-motion ((w main-window) x y)
   (declare (ignore w))
   (setf *mouse-x* x *mouse-y* y))
+
+(defvar *click* nil)
+(defvar *zoom-delta* *zoom*)
+(defmethod glut:mouse ((w main-window) button state x y)
+  (declare (ignore w x y))
+  (case button
+    (:left-button
+      (if (eq state :down)
+        (setf *click* t)
+        (setf *click* nil)))
+    (:wheel-down
+      (setf *zoom* (/ *zoom* 1.2))
+      (print *zoom*)
+      (glut:post-redisplay))
+    (:wheel-up
+      (setf *zoom* (* *zoom* 1.2))
+      (print *zoom*)
+      (glut:post-redisplay))))
+
 
 (defmethod glut:close ((w main-window))
   (zpb-ttf:close-font-loader *font*)
@@ -288,20 +342,42 @@ void main(void) {
   (gl:delete-program *program2*)
 )
 
+(defmacro signeq (a b)
+  `(or (and (plusp ,a) (plusp ,b))
+       (and (minusp ,a) (minusp ,b))))
 
-
-(defvar hoge 0)
 (defmethod glut:display ((w main-window))
   (gl:clear-color 0.2 0.7 0.5 1.0)
   (gl:clear-stencil 0)
   (gl:clear :color-buffer-bit :stencil-buffer-bit)
+  (gl:enable :normalize)
 
-  (let ((size 0.15))
-    (render-string takao-gothic "新しい朝が来た　希望の朝だ" -1.0 0.8 size 0.0)
-    (render-string takao-gothic "喜びに胸を開け　大空あおげ" -1.0 0.6 size 0.0)
-    (render-string takao-gothic "ラジオの声に　健やかな胸を" -1.0 0.4 size 0.0)
-    (render-string takao-gothic "この香る風に　開けよ" -1.0 0.2 size 0.0)
-    (render-string takao-gothic "それ　一　ニ　三" -1.0 0.0 size 0.0))
+  (if (/= *zoom* *zoom-delta*)
+    (let* ((d (- *zoom* *zoom-delta*))
+           (ad (abs d)))
+      (when (> ad 2.0)
+        (setf d (* (/ d ad) 2.0)))
+      (setf *zoom-delta* (* *zoom-delta* (expt 1.2 d)))
+      (let ((nd (- *zoom* *zoom-delta*)))
+        (unless (signeq d nd)
+          (setf *zoom-delta* *zoom*)))))
+
+  (gl:with-pushed-matrix
+    (gl:translate -1.0 0.8 0.0)
+    (gl:scale *zoom-delta* *zoom-delta* 0.0)
+    (let ((size 0.15))
+      (draw-string takao-gothic "新" :size size)
+      (gl:translate 0.0 -0.2 0.0)
+      (draw-string takao-gothic "新しい朝が来た　希望の朝だ" :size size)
+      (gl:translate 0.0 -0.2 0.0)
+      (draw-string takao-gothic "喜びに胸を開け　大空あおげ" :size size)
+      (gl:translate 0.0 -0.2 0.0)
+      (draw-string takao-gothic "ラジオの声に　健やかな胸を" :size size)
+      (gl:translate 0.0 -0.2 0.0)
+      (draw-string takao-gothic "この香る風に　開けよ" :size size)
+      (gl:translate 0.0 -0.2 0.0)
+      (draw-string takao-gothic "それ　一　ニ　三" :size size)))
+
 
 
 
@@ -309,4 +385,5 @@ void main(void) {
 
   (gl:flush))
 
+(sb-profile:profile "COMMON-LISP-USER")
 (glut:display-window (make-instance 'main-window))
