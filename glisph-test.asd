@@ -12,7 +12,8 @@
   :author "Tamamu"
   :license "LLGPL"
   :depends-on (:glisph
-               :prove)
+               :prove
+							 :cl-glut)
   :components ((:module "t"
                 :components
                 ((:test-file "glisph"))))
