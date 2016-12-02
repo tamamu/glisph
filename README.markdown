@@ -1,5 +1,7 @@
 # Glisph
 
+![Screen Shot](screenshot.gif)
+
 This is glyph rendering engine using OpenGL shaders.  
 It adopt vector based rendering with quadratic bezier curve, so it can draw only TTF format.  
 
