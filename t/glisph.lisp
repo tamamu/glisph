@@ -41,7 +41,6 @@
   (glut:post-redisplay))
 
 (defmethod glut:reshape ((w test-window) width height)
-  (format t "reshape~%")
   (gl:viewport 0 0 width height)
   (gl:matrix-mode :projection)
   (gl:load-identity)
@@ -78,6 +77,11 @@
                                                                :color '(1 0 1 1)
                                                                :spacing 0.5))
   (gl:flush))
+
+(defmethod glut:close ((w test-window))
+  (glisph:delete-glyph-table *glyph-table*)
+  (glisph:finalize)
+  (format t "close~%"))
 
 (plan 1)
 

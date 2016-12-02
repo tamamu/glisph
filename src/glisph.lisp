@@ -11,6 +11,7 @@
       (:import-from :zpb-ttf
                     :open-font-loader)
       (:export :init
+               :finalize
                :vglyph
                :make-glyph-table
                :regist-glyph
@@ -81,6 +82,11 @@
   (setf *glyph-color* (gl:get-uniform-location *bounding-box-program* "color"))
   (gl:uniformf *glyph-color* 0.0 0.0 0.0 1.0)
   (gl:use-program 0))
+
+(defun finalize ()
+  "Delete GLSL programs."
+  (gl:delete-program *glyph-program*)
+  (gl:delete-program *bounding-box-program*))
 
 (defmacro make-gl-array (data)
   `(let* ((len (length ,data))
@@ -160,12 +166,15 @@
     (regist-glyph-helper ,table ,ch)))
 
 (defun delete-glyph-table (table)
-  (zpb-ttf:close-font-loader (vglyph-source (gethash :font table)))
+  "Delete font data and glyphs vertex."
+  (zpb-ttf:close-font-loader (gethash :font table))
+  #|
   (loop for key being each hash-key of table
         using (hash-value vg)
         when (typep key 'character)
-        do (gl:delete-buffers (vglyph-buffer vg))
-           (gl:delete-buffers (vglyph-box-buffer vg))))
+        do (gl:delete-buffer (vglyph-buffer vg))
+           (gl:delete-buffer (vglyph-box-buffer vg)))
+  |#)
 
 (defun set-glyph-color (r g b a)
   "Set render color of glyph."
