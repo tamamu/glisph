@@ -27,7 +27,9 @@
 
 (defvar *glyph-program* nil)
 (defvar *bounding-box-program* nil)
-(defvar *glyph-color* nil)
+(defvar *glyph-matrix* nil)
+(defvar *bounding-box-matrix* nil)
+(defvar *bounding-box-color* nil)
 
 ; Glyph-table
 ; :font := zpb-ttf:font
@@ -67,6 +69,14 @@
         (format t "Program log: ~A~%" program-log)))
     program))
 
+(defmacro transform-matrix (x y z s)
+  `(make-array 16 :element-type 'single-float
+                  :initial-contents
+                    (list ,s 0.0 0.0 ,x
+                      0.0 ,s 0.0 ,y
+                      0.0 0.0 1.0 ,z
+                      0.0 0.0 0.0 1.0)))
+
 (defun init ()
   "Initialize GLisph.
    Compile GLSL shaders to program."
@@ -74,13 +84,18 @@
   (gl:use-program *glyph-program*)
   (gl:bind-attrib-location *glyph-program* 0 "vertex")
   (gl:bind-attrib-location *glyph-program* 1 "attrib")
+  (setf *glyph-matrix* (gl:get-uniform-location *glyph-program* "mvpMatrix"))
+  (gl:uniform-matrix-4fv *glyph-matrix* (transform-matrix 0.0 0.0 0.0 1.0))
   (gl:use-program 0)
 
   (setf *bounding-box-program* (create-program +bounding-box-vs+ +bounding-box-fs+))
   (gl:use-program *bounding-box-program*)
   (gl:bind-attrib-location *bounding-box-program* 0 "vertex")
-  (setf *glyph-color* (gl:get-uniform-location *bounding-box-program* "color"))
-  (gl:uniformf *glyph-color* 0.0 0.0 0.0 1.0)
+  (setf *bounding-box-color* (gl:get-uniform-location *bounding-box-program* "color"))
+  (setf *bounding-box-matrix* (gl:get-uniform-location *bounding-box-program* "mvpMatrix"))
+  (gl:uniformf *bounding-box-color* 0.0 0.0 0.0 1.0)
+  (gl:uniform-matrix-4fv *bounding-box-matrix* (transform-matrix 0.0 0.0 0.0 1.0))
+
   (gl:use-program 0))
 
 (defun finalize ()
@@ -173,13 +188,21 @@
         using (hash-value vg)
         when (typep key 'character)
         do (gl:delete-buffer (vglyph-buffer vg))
-           (gl:delete-buffer (vglyph-box-buffer vg)))
+           (gl:delete-buffer (vglyph-box-buffer vg))
   |#)
 
 (defun set-glyph-color (r g b a)
   "Set render color of glyph."
   (gl:use-program *bounding-box-program*)
-  (gl:uniformf *glyph-color* r g b a)
+  (gl:uniformf *bounding-box-color* r g b a)
+  (gl:use-program 0))
+
+(defun set-glyph-transform (x y z size)
+  (gl:use-program *glyph-program*)
+  (gl:uniform-matrix-4fv *glyph-matrix* (transform-matrix x y z size))
+  (gl:use-program 0)
+  (gl:use-program *bounding-box-program*)
+  (gl:uniform-matrix-4fv *bounding-box-program* (transform-matrix x y z size))
   (gl:use-program 0))
 
 (defun render-glyph (vg)
@@ -215,37 +238,33 @@
   (gl:use-program 0)
   (gl:disable :stencil-test))
 
-(defun render-string (table str spacing)
+(defun render-string (table str spacing x y z size)
   "Syntax sugar for rendering string in a single line."
   @type string str
-  (gl:with-pushed-matrix
-   (let ((em (gethash :em table)))
-      (loop for i from 0 below (length str)
-            for ch = (char str i)
-            for cvg = (gethash ch table)
-            for pvg = nil then cvg
-            do (when (null cvg) (format t "~A is nil~%" ch))
-            do (when pvg
-                 (gl:translate (float (/ (- (zpb-ttf:kerning-offset
-                                              (vglyph-source pvg)
-                                              (vglyph-source cvg)
-                                              (gethash :font table))) em))
-                               0 0))
-              (render-glyph cvg)
-               (gl:translate
-                 (+ spacing (float (/ (zpb-ttf:advance-width
-                                        (vglyph-source cvg)) em)))
-                 0.0 0.0)))))
+  @type single-float x
+  @type single-float y
+  @type single-float z
+  @type single-float size
+  (let ((em (gethash :em table)))
+    (loop for i from 0 below (length str)
+          for ch = (char str i)
+          for cvg = (gethash ch table)
+          for pvg = nil then cvg
+          do (when (null cvg) (format t "~A is nil~%" ch))
+          do (when pvg
+               (incf x (float (/ (- (zpb-ttf:kerning-offset (vglyph-source pvg)
+                                                            (vglyph-source cvg)
+                                                            (gethash :font table))) em))))
+             (set-glyph-transform x y z size)
+             (render-glyph cvg)
+             (incf x (+ spacing (float (/ (zpb-ttf:advance-width
+                                            (vglyph-source cvg)) em)))))))
 
-(defun draw-string (table str &key (size nil sized-p)
-                                   (color nil colored-p)
-                                   (spacing 0.0))
+(defun draw-string (table str x y z size &key (color nil colored-p)
+                                              (spacing 0.0))
   "Toy function to render string with set size, color, and spacing."
   (when colored-p
     (set-glyph-color (elt color 0) (elt color 1)
                      (elt color 2) (elt color 3)))
-  (gl:with-pushed-matrix
-    (when sized-p
-      (gl:scale size size 1.0))
-    (render-string table str spacing)))
+  (render-string table str spacing x y z size))
 

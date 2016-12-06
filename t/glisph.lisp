@@ -51,6 +51,7 @@
 (defmethod glut:display-window :before ((w test-window))
   (setf *font*
     (glisph:open-font-loader "/usr/share/fonts/OTF/TakaoGothic.ttf"))
+    ;(glisph:open-font-loader "/usr/share/fonts/TTF/RictyDiscord-Regular.ttf"))
   (setf *glyph-table* (glisph:make-glyph-table *font*))
   (loop for ch across "Hello World!色は匂へと　散りぬるを"
         do (glisph:regist-glyph *glyph-table* ch))
@@ -70,10 +71,9 @@
     (gl:translate (- *display-x*) (- *display-y*) 0)
     (gl:scale *zoom* *zoom* 0)
     (gl:translate (* *display-x* 2) (* *display-y* 2) 0)
-    (glisph:draw-string *glyph-table* "Hello World!" :size 60
+    (glisph:draw-string *glyph-table* "Hello World!" 0.0 0.0 0.0 60.0
                                                      :color '(1 1 1 1))
-    (gl:translate 0 60 0)
-    (glisph:draw-string *glyph-table* "色は匂へと　散りぬるを" :size 40
+    (glisph:draw-string *glyph-table* "色は匂へと　散りぬるを" 0.0 60.0 0.0 40.0
                                                                :color '(1 0 1 1)
                                                                :spacing 0.5))
   (gl:flush))
