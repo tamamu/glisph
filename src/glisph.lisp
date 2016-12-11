@@ -1,7 +1,8 @@
 (in-package :cl-user)
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package :glisph)
-    (defpackage glisph
+    (defpackage glisph (:nicknames :gli)
+      (:documentation "Glyph rendering engine using OpenGL shading language")
       (:use :cl)
       (:import-from :glisph.shader
                     :+glyph-vs+
@@ -15,7 +16,10 @@
                :vglyph
                :make-glyph-table
                :regist-glyph
-               :set-glyph-color
+               :gcolor
+               :gtrans
+               :gscale
+               :grotate
                :render-glyph
                :render-string
                :draw-string
@@ -26,10 +30,16 @@
 (annot:enable-annot-syntax)
 
 (defvar *glyph-program* nil)
+(defvar *glyph-size* nil)
+(defvar *glyph-translation* nil)
+(defvar *glyph-scale* nil)
+(defvar *glyph-rotate* nil)
 (defvar *bounding-box-program* nil)
-(defvar *glyph-matrix* nil)
-(defvar *bounding-box-matrix* nil)
+(defvar *bounding-box-size* nil)
 (defvar *bounding-box-color* nil)
+(defvar *bounding-box-translation* nil)
+(defvar *bounding-box-scale* nil)
+(defvar *bounding-box-rotate* nil)
 
 ; Glyph-table
 ; :font := zpb-ttf:font
@@ -69,37 +79,53 @@
         (format t "Program log: ~A~%" program-log)))
     program))
 
-(defmacro transform-matrix (x y z s)
-  `(make-array 16 :element-type 'single-float
-                  :initial-contents
-                    (list ,s 0.0 0.0 ,x
-                      0.0 ,s 0.0 ,y
-                      0.0 0.0 1.0 ,z
-                      0.0 0.0 0.0 1.0)))
+(defun matrix4f (a b c d e f g h i j k l m n o p)
+  (make-array 16 :element-type 'single-float
+                 :initial-contents `(,a ,b ,c ,d
+                                     ,e ,f ,g ,h
+                                     ,i ,j ,k ,l
+                                     ,m ,n ,o ,p)))
 
 (defun init ()
-  "Initialize GLisph.
-   Compile GLSL shaders to program."
-  (setf *glyph-program* (create-program +glyph-vs+ +glyph-fs+))
-  (gl:use-program *glyph-program*)
-  (gl:bind-attrib-location *glyph-program* 0 "vertex")
-  (gl:bind-attrib-location *glyph-program* 1 "attrib")
-  (setf *glyph-matrix* (gl:get-uniform-location *glyph-program* "mvpMatrix"))
-  (gl:uniform-matrix-4fv *glyph-matrix* (transform-matrix 0.0 0.0 0.0 1.0))
-  (gl:use-program 0)
+  "Initialize GLisph engine.
+   Please call this function before draw glyphs."
+  (let ((imat (matrix4f 1.0 0.0 0.0 0.0
+                        0.0 1.0 0.0 0.0
+                        0.0 0.0 1.0 0.0
+                        0.0 0.0 0.0 1.0)))
+    (setf *glyph-program* (create-program +glyph-vs+ +glyph-fs+))
+    (gl:use-program *glyph-program*)
+    (gl:bind-attrib-location *glyph-program* 0 "vertex")
+    (gl:bind-attrib-location *glyph-program* 1 "attrib")
+    (setf *glyph-size* (gl:get-uniform-location *glyph-program* "sizeMatrix"))
+    (gl:uniform-matrix-4fv *glyph-size* imat)
+    (setf *glyph-translation* (gl:get-uniform-location *glyph-program* "translationMatrix"))
+    (gl:uniform-matrix-4fv *glyph-translation* imat)
+    (setf *glyph-scale* (gl:get-uniform-location *glyph-program* "scaleMatrix"))
+    (gl:uniform-matrix-4fv *glyph-scale* imat)
+    (setf *glyph-rotate* (gl:get-uniform-location *glyph-program* "rotateMatrix"))
+    (gl:uniform-matrix-4fv *glyph-rotate* imat)
+    (gl:use-program 0)
 
-  (setf *bounding-box-program* (create-program +bounding-box-vs+ +bounding-box-fs+))
-  (gl:use-program *bounding-box-program*)
-  (gl:bind-attrib-location *bounding-box-program* 0 "vertex")
-  (setf *bounding-box-color* (gl:get-uniform-location *bounding-box-program* "color"))
-  (setf *bounding-box-matrix* (gl:get-uniform-location *bounding-box-program* "mvpMatrix"))
-  (gl:uniformf *bounding-box-color* 0.0 0.0 0.0 1.0)
-  (gl:uniform-matrix-4fv *bounding-box-matrix* (transform-matrix 0.0 0.0 0.0 1.0))
+    (setf *bounding-box-program* (create-program +bounding-box-vs+ +bounding-box-fs+))
+    (gl:use-program *bounding-box-program*)
+    (gl:bind-attrib-location *bounding-box-program* 0 "vertex")
+    (setf *bounding-box-color* (gl:get-uniform-location *bounding-box-program* "color"))
+    (gl:uniformf *bounding-box-color* 0.0 0.0 0.0 1.0)
+    (setf *bounding-box-size* (gl:get-uniform-location *bounding-box-program* "sizeMatrix"))
+    (gl:uniform-matrix-4fv *bounding-box-size* imat)
+    (setf *bounding-box-translation* (gl:get-uniform-location *bounding-box-program* "translationMatrix"))
+    (gl:uniform-matrix-4fv *bounding-box-translation* imat)
+    (setf *bounding-box-scale* (gl:get-uniform-location *bounding-box-program* "scaleMatrix"))
+    (gl:uniform-matrix-4fv *bounding-box-scale* imat)
+    (setf *bounding-box-rotate* (gl:get-uniform-location *bounding-box-program* "rotateMatrix"))
+    (gl:uniform-matrix-4fv *bounding-box-rotate* imat)
 
-  (gl:use-program 0))
+    (gl:use-program 0)))
 
 (defun finalize ()
-  "Delete GLSL programs."
+  "Delete GLisph shader programs.
+   Please call this function before exit program."
   (gl:delete-program *glyph-program*)
   (gl:delete-program *bounding-box-program*))
 
@@ -144,6 +170,7 @@
       (concatenate 'vector polygon curve)))
 
 (defmacro make-glyph-table (font)
+  "Make glyphs cache table."
   `(let ((tbl (make-hash-table)))
     (setf (gethash :font tbl) ,font
           (gethash :em tbl) (zpb-ttf:units/em ,font))
@@ -177,11 +204,12 @@
                                             :count (/ (length vertex) 4)))))
 
 (defmacro regist-glyph (table ch)
+  "Regist a glyph of the character to glyph table."
   `(when (null (gethash ,ch ,table))
     (regist-glyph-helper ,table ,ch)))
 
 (defun delete-glyph-table (table)
-  "Delete font data and glyphs vertex."
+  "Delete font data from the table."
   (zpb-ttf:close-font-loader (gethash :font table))
   #|
   (loop for key being each hash-key of table
@@ -191,19 +219,63 @@
            (gl:delete-buffer (vglyph-box-buffer vg))
   |#)
 
-(defun set-glyph-color (r g b a)
-  "Set render color of glyph."
+(defun gcolor (r g b a)
+  "Set render color of glyphs."
   (gl:use-program *bounding-box-program*)
   (gl:uniformf *bounding-box-color* r g b a)
   (gl:use-program 0))
 
-(defun set-glyph-transform (x y z size)
-  (gl:use-program *glyph-program*)
-  (gl:uniform-matrix-4fv *glyph-matrix* (transform-matrix x y z size))
-  (gl:use-program 0)
-  (gl:use-program *bounding-box-program*)
-  (gl:uniform-matrix-4fv *bounding-box-program* (transform-matrix x y z size))
-  (gl:use-program 0))
+(defun gsize (size)
+  "Set the size matrix of glyphs."
+  (let ((mat (matrix4f size  0.0  0.0 0.0
+                        0.0 size  0.0 0.0
+                        0.0  0.0  1.0 0.0
+                        0.0  0.0  0.0 1.0)))
+    (gl:use-program *glyph-program*)
+    (gl:uniform-matrix-4fv *glyph-size* mat)
+    (gl:use-program 0)
+    (gl:use-program *bounding-box-program*)
+    (gl:uniform-matrix-4fv *bounding-box-size* mat)
+    (gl:use-program 0)))
+
+(defun gtrans (x y z)
+  "Set the translation matrix of glyphs."
+  (let ((mat (matrix4f 1.0 0.0 0.0 x
+                       0.0 1.0 0.0 y
+                       0.0 0.0 1.0 z
+                       0.0 0.0 0.0 1.0)))
+    (gl:use-program *glyph-program*)
+    (gl:uniform-matrix-4fv *glyph-translation* mat)
+    (gl:use-program 0)
+    (gl:use-program *bounding-box-program*)
+    (gl:uniform-matrix-4fv *bounding-box-translation* mat)
+    (gl:use-program 0)))
+
+(defun gscale (x y z)
+  "Set the scale matrix of glyphs."
+  (let ((mat (matrix4f  x  0.0 0.0 0.0
+                       0.0  y  0.0 0.0
+                       0.0 0.0  z  0.0
+                       0.0 0.0 0.0 1.0)))
+    (gl:use-program *glyph-program*)
+    (gl:uniform-matrix-4fv *glyph-scale* mat)
+    (gl:use-program 0)
+    (gl:use-program *bounding-box-program*)
+    (gl:uniform-matrix-4fv *bounding-box-scale* mat)
+    (gl:use-program 0)))
+
+(defun grotate (x y z)
+  "Set the rotate matrix of glyphs."
+  (let ((mat (matrix4f (* (cos y) (cos z)) (- (sin z)) (sin y) 0.0
+                       (sin z) (* (cos x) (cos z)) (- (sin x)) 0.0
+                       (- (sin y)) (sin x) (* (cos x) (cos y)) 1.0
+                       0.0 0.0 0.0 1.0)))
+    (gl:use-program *glyph-program*)
+    (gl:uniform-matrix-4fv *glyph-rotate* mat)
+    (gl:use-program 0)
+    (gl:use-program *bounding-box-program*)
+    (gl:uniform-matrix-4fv *bounding-box-rotate* mat)
+    (gl:use-program 0)))
 
 (defun render-glyph (vg)
   "Render the glyph."
@@ -250,21 +322,28 @@
           for ch = (char str i)
           for cvg = (gethash ch table)
           for pvg = nil then cvg
-          do (when (null cvg) (format t "~A is nil~%" ch))
           do (when pvg
-               (incf x (float (/ (- (zpb-ttf:kerning-offset (vglyph-source pvg)
-                                                            (vglyph-source cvg)
-                                                            (gethash :font table))) em))))
-             (set-glyph-transform x y z size)
-             (render-glyph cvg)
-             (incf x (+ spacing (float (/ (zpb-ttf:advance-width
-                                            (vglyph-source cvg)) em)))))))
+               (incf x (float (* size (/ (- (zpb-ttf:kerning-offset
+                                              (vglyph-source pvg)
+                                              (vglyph-source cvg)
+                                              (gethash :font table)))
+                                              em)))))
+             (gtrans x y z)
+
+          if (null cvg)
+          do (format t "~A is not registed~%" ch)
+          else
+          do (render-glyph cvg)
+             (incf x (* size
+                        (+ spacing (float (/ (zpb-ttf:advance-width
+                                               (vglyph-source cvg)) em))))))))
 
 (defun draw-string (table str x y z size &key (color nil colored-p)
                                               (spacing 0.0))
   "Toy function to render string with set size, color, and spacing."
   (when colored-p
-    (set-glyph-color (elt color 0) (elt color 1)
-                     (elt color 2) (elt color 3)))
+    (gcolor (elt color 0) (elt color 1)
+            (elt color 2) (elt color 3)))
+  (gsize size)
   (render-string table str spacing x y z size))
 
