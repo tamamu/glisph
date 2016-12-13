@@ -60,7 +60,7 @@
   (loop for ch across "Hello World!
   The quick brown fox jumps over the lazy dog.色は匂へと　散りぬるを"
         do (gli:regist-glyph *glyph-table* ch))
-  (gli:init))
+  (ok (gli:init)))
 
 (defmethod glut:tick ((w test-window))
   (incf *frame-count*)
@@ -106,6 +106,6 @@
 
 (plan 1)
 
-(pass (glut:display-window (make-instance 'test-window)))
+(glut:display-window (make-instance 'test-window))
 
 (finalize)

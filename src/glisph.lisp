@@ -121,7 +121,8 @@
     (setf *bounding-box-rotate* (gl:get-uniform-location *bounding-box-program* "rotateMatrix"))
     (gl:uniform-matrix-4fv *bounding-box-rotate* imat)
 
-    (gl:use-program 0)))
+    (gl:use-program 0)
+    t))
 
 (defun finalize ()
   "Delete GLisph shader programs.
