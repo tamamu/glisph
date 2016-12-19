@@ -10,7 +10,7 @@
 
 (defsystem glisph-test
   :author "Tamamu"
-  :license "LLGPL"
+  :license "MIT"
   :depends-on (:glisph
                :prove
                :cl-glut)

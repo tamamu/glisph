@@ -15,7 +15,7 @@
 (defsystem glisph
   :version "0.1"
   :author "Tamamu"
-  :license "LLGPL"
+  :license "MIT"
   :depends-on (:cl-annot
                :cl-opengl
                :cl-glu
