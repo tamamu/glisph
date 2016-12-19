@@ -18,12 +18,12 @@
   :license "LLGPL"
   :depends-on (:cl-annot
                :cl-opengl
-							 :cl-glu
+               :cl-glu
                :zpb-ttf)
   :components ((:module "src"
                 :components
                 ((:file "glisph" :depends-on ("shader"))
-								 (:file "shader"))))
+                 (:file "shader"))))
   :description ""
   :long-description
   #.(with-open-file (stream (merge-pathnames

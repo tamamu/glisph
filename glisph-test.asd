@@ -13,7 +13,7 @@
   :license "LLGPL"
   :depends-on (:glisph
                :prove
-							 :cl-glut)
+               :cl-glut)
   :components ((:module "t"
                 :components
                 ((:test-file "glisph"))))
