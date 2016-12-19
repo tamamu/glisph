@@ -8,8 +8,10 @@
 
 (defvar *width* 800)
 (defvar *height* 600)
-(defvar *font*)
-(defvar *glyph-table*)
+(defvar *font-en*)
+(defvar *font-ja*)
+(defvar *glyph-table-en*)
+(defvar *glyph-table-ja*)
 (defvar *origin-x* 0.0)
 (defvar *origin-y* 0.0)
 (defvar *display-x* 0.0)
@@ -53,13 +55,16 @@
         *height* height))
 
 (defmethod glut:display-window :before ((w test-window))
-  (setf *font*
-    (gli:open-font-loader "/usr/share/fonts/OTF/TakaoGothic.ttf"))
-    ;(gli:open-font-loader "/usr/share/fonts/TTF/RictyDiscord-Regular.ttf"))
-  (setf *glyph-table* (gli:make-glyph-table *font*))
-  (loop for ch across "Hello World!
-  The quick brown fox jumps over the lazy dog.色は匂へと　散りぬるを"
-        do (gli:regist-glyph *glyph-table* ch))
+  (setf *font-en* (gli:open-font-loader
+                   (merge-pathnames "Ubuntu-R.ttf" *load-truename*))
+        *font-ja* (gli:open-font-loader
+                   (merge-pathnames "mplus-1m-regular.ttf" *load-truename*)))
+  (setf *glyph-table-en* (gli:make-glyph-table *font-en*)
+        *glyph-table-ja* (gli:make-glyph-table *font-ja*))
+  (loop for ch across "Hello World!The quick brown fox jumps over the lazy dog."
+        do (gli:regist-glyph *glyph-table-en* ch))
+  (loop for ch across "色は匂へと　散りぬるを"
+        do (gli:regist-glyph *glyph-table-ja* ch))
   (ok (gli:init)))
 
 (defmethod glut:tick ((w test-window))
@@ -86,21 +91,25 @@
         (sinr (sin rad))
         (cosr (cos rad)))
     (gli:grotate 0.0 0.0 0.0)
-    (gli:draw-string *glyph-table* "The quick brown fox jumps over the lazy dog."
+    (gli:draw-string *glyph-table-en*
+      "The quick brown fox jumps over the lazy dog."
       -350.0 0.0 0.0 30.0
       :color '(1 1 1 1))
     (gli:grotate 0.0 0.0 rad)
-    (gli:draw-string *glyph-table* "Hello World!"
+    (gli:draw-string *glyph-table-en*
+      "Hello World!"
       -300.0 -150.0 0.0 (+ 45.0 (* 30.0 cosr))
       :color '(1 1 0 1))
-    (gli:draw-string *glyph-table* "色は匂へと　散りぬるを"
+    (gli:draw-string *glyph-table-ja*
+      "色は匂へと　散りぬるを"
       -300.0 200.0 0.0 40.0
       :color `(0 1 1 1)
       :spacing sinr))
   (gl:flush))
 
 (defmethod glut:close ((w test-window))
-  (gli:delete-glyph-table *glyph-table*)
+  (gli:delete-glyph-table *glyph-table-en*)
+  (gli:delete-glyph-table *glyph-table-ja*)
   (gli:finalize)
   (format t "close~%"))
 
