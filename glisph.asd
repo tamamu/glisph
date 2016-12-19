@@ -24,7 +24,7 @@
                 :components
                 ((:file "glisph" :depends-on ("shader"))
                  (:file "shader"))))
-  :description ""
+  :description "Glyph rendering engine using OpenGL shading language"
   :long-description
   #.(with-open-file (stream (merge-pathnames
                              #p"README.markdown"
