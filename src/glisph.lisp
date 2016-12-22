@@ -19,6 +19,7 @@
                :gcolor
                :gtrans
                :gscale
+               :gsize
                :grotate
                :render-glyph
                :render-string
@@ -172,7 +173,7 @@
 
 (defmacro make-glyph-table (font)
   "Make glyphs cache table."
-  `(let ((tbl (make-hash-table)))
+  `(let ((tbl (make-hash-table :test 'eq)))
     (setf (gethash :font tbl) ,font
           (gethash :em tbl) (zpb-ttf:units/em ,font))
     tbl))
@@ -283,6 +284,7 @@
   @type vglyph vg
   @optimize (speed 3)
   @optimize (safety 0)
+  @optimize (debug 0)
   (gl:enable :stencil-test)
   (gl:enable :sample-alpha-to-coverage)
   (gl:stencil-func :always 0 1)
@@ -292,12 +294,12 @@
   (gl:enable-vertex-attrib-array 0)
   (gl:enable-vertex-attrib-array 1)
   (gl:bind-buffer :array-buffer (vglyph-buffer vg))
-  (gl:vertex-attrib-pointer 0 2 :float nil #.(* 4 4) 0)
-  (gl:vertex-attrib-pointer 1 2 :float nil #.(* 4 4) #.(* 4 2))
+  (gl:vertex-attrib-pointer 0 2 :float nil 16 0)
+  (gl:vertex-attrib-pointer 1 2 :float nil 16 8)
   (gl:draw-arrays :triangles 0 (vglyph-count vg))
   (gl:disable-vertex-attrib-array 0)
   (gl:disable-vertex-attrib-array 1)
-  (gl:use-program 0)
+  ;(gl:use-program 0)
   (gl:disable :sample-alpha-to-coverage)
   (gl:stencil-func :notequal 0 1)
   (gl:stencil-op :keep :keep :keep)
