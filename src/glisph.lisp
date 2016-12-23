@@ -15,13 +15,13 @@
                :finalize
                :vglyph
                :make-glyph-table
-               :regist-glyph
+               :regist-glyphs
                :gcolor
                :gtrans
                :gscale
                :gsize
                :grotate
-               :render-glyph
+               :new-vstring
                :render-string
                :draw-string
                :open-font-loader
@@ -49,6 +49,15 @@
 
 (defstruct vglyph
   (source nil :type zpb-ttf::glyph)
+  (xmin 0.0 :type single-float)
+  (ymin 0.0 :type single-float)
+  (xmax 1.0 :type single-float)
+  (ymax 1.0 :type single-float)
+  (vertex nil :type array)
+  (count 0 :type fixnum))
+
+(defstruct vstring
+  (content "" :type string)
   (xmin 0.0 :type single-float)
   (ymin 0.0 :type single-float)
   (xmax 1.0 :type single-float)
@@ -171,6 +180,51 @@
                        (aref pv (+ i 2)) (aref pv (+ i 3)) 0.5 0.5))))))
       (concatenate 'vector polygon curve)))
 
+(defun new-vstring (table str spacing)
+  (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
+         (count (loop for vg in vglyphs sum (vglyph-count vg))))
+    (let ((em (gethash :em table))
+          (font (gethash :font table))
+          (xmin (vglyph-xmin (car vglyphs)))
+          (xmax 0.0)
+          (ymin 0.0)
+          (ymax 1.0)
+          (vertex (make-array count :element-type 'single-float))
+          (buffer (gl:gen-buffer))
+          (box-buffer (gl:gen-buffer)))
+      (loop for cvg in vglyphs
+            for vv = (vglyph-vertex cvg)
+            for pvg = nil then cvg
+            with sx = 0
+            with stride = 0
+            do (when pvg
+                 (incf sx (float (/ (- (zpb-ttf:kerning-offset
+                                        (vglyph-source pvg)
+                                        (vglyph-source cvg)
+                                        font))
+                                    em))))
+            do (loop for j from 0 below (length vv) by 4
+                     do (setf (aref vertex (+ stride j)) (+ sx (aref vv j))
+                              (aref vertex (+ stride j 1)) (aref vv (+ j 1))
+                              (aref vertex (+ stride j 2)) (aref vv (+ j 2))
+                              (aref vertex (+ stride j 3)) (aref vv (+ j 3))))
+            do (incf sx (+ spacing (float (/ (zpb-ttf:advance-width
+                                              (vglyph-source cvg)) em))))
+            do (incf stride (length vv))
+            finally (setf xmax (+ sx (vglyph-xmax cvg))))
+      (setf ymin (loop for vg in vglyphs minimize (vglyph-ymin vg))
+            ymax (loop for vg in vglyphs maximize (vglyph-ymax vg)))
+      (gl:bind-buffer :array-buffer buffer)
+      (gl:buffer-data :array-buffer :static-draw
+                      (make-gl-array vertex))
+      (gl:bind-buffer :array-buffer 0)
+      (gl:bind-buffer :array-buffer box-buffer)
+      (gl:buffer-data :array-buffer :static-draw
+                      (make-gl-array (vector xmin ymax xmin ymin xmax ymin xmax ymax)))
+      (gl:bind-buffer :array-buffer 0)
+      (make-vstring :content str :xmin xmin :xmax xmax :ymin ymin :ymax ymax
+                    :buffer buffer :box-buffer box-buffer :count (/ count 4)))))
+
 (defmacro make-glyph-table (font)
   "Make glyphs cache table."
   `(let ((tbl (make-hash-table :test 'eq)))
@@ -183,32 +237,23 @@
           (bbox (zpb-ttf:bounding-box glyph))
           (em (gethash :em ,table))
           (vertex (vertex-fill glyph em))
-          (buffer (gl:gen-buffer))
-          (box-buffer (gl:gen-buffer))
           (xmin (float (/ (zpb-ttf:xmin bbox) em)))
           (ymin (float (/ (zpb-ttf:ymin bbox) em)))
           (xmax (float (/ (zpb-ttf:xmax bbox) em)))
           (ymax (float (/ (zpb-ttf:ymax bbox) em))))
-    (gl:bind-buffer :array-buffer buffer)
-    (gl:buffer-data :array-buffer :static-draw (make-gl-array vertex))
-    (gl:bind-buffer :array-buffer 0)
-    (gl:bind-buffer :array-buffer box-buffer)
-    (gl:buffer-data :array-buffer :static-draw
-      (make-gl-array (vector xmin ymax xmin ymin xmax ymin xmax ymax)))
-    (gl:bind-buffer :array-buffer 0)
-    (setf (gethash ,ch ,table) (make-vglyph :source glyph
-                                            :xmin xmin
-                                            :ymin ymin
-                                            :xmax xmax
-                                            :ymax ymax
-                                            :buffer buffer
-                                            :box-buffer box-buffer
-                                            :count (/ (length vertex) 4)))))
+     (setf (gethash ,ch ,table) (make-vglyph :source glyph
+                                             :vertex vertex
+                                             :xmin xmin
+                                             :ymin ymin
+                                             :xmax xmax
+                                             :ymax ymax
+                                             :count (length vertex)))))
 
-(defmacro regist-glyph (table ch)
-  "Regist a glyph of the character to glyph table."
-  `(when (null (gethash ,ch ,table))
-    (regist-glyph-helper ,table ,ch)))
+(defmacro regist-glyphs (table str)
+  "Regist glyphs of the string to glyph table."
+  `(loop for ch across ,str
+         when (null (gethash ch ,table))
+         do (regist-glyph-helper ,table ch)))
 
 (defun delete-glyph-table (table)
   "Delete font data from the table."
@@ -279,9 +324,9 @@
     (gl:uniform-matrix-4fv *bounding-box-rotate* mat)
     (gl:use-program 0)))
 
-(defun render-glyph (vg)
-  "Render the glyph."
-  @type vglyph vg
+(defun render-string (vs)
+  "Render the vertex string."
+  @type vstring vs
   @optimize (speed 3)
   @optimize (safety 0)
   @optimize (debug 0)
@@ -293,10 +338,10 @@
   (gl:use-program *glyph-program*)
   (gl:enable-vertex-attrib-array 0)
   (gl:enable-vertex-attrib-array 1)
-  (gl:bind-buffer :array-buffer (vglyph-buffer vg))
+  (gl:bind-buffer :array-buffer (vstring-buffer vs))
   (gl:vertex-attrib-pointer 0 2 :float nil 16 0)
   (gl:vertex-attrib-pointer 1 2 :float nil 16 8)
-  (gl:draw-arrays :triangles 0 (vglyph-count vg))
+  (gl:draw-arrays :triangles 0 (vstring-count vs))
   (gl:disable-vertex-attrib-array 0)
   (gl:disable-vertex-attrib-array 1)
   ;(gl:use-program 0)
@@ -306,47 +351,19 @@
   (gl:color-mask t t t t)
   (gl:use-program *bounding-box-program*)
   (gl:enable-vertex-attrib-array 0)
-  (gl:bind-buffer :array-buffer (vglyph-box-buffer vg))
+  (gl:bind-buffer :array-buffer (vstring-box-buffer vs))
   (gl:vertex-attrib-pointer 0 2 :float nil 0 0)
   (gl:draw-arrays :triangle-fan 0 4)
   (gl:disable-vertex-attrib-array 0)
   (gl:use-program 0)
   (gl:disable :stencil-test))
 
-(defun render-string (table str spacing x y z size)
-  "Syntax sugar for rendering string in a single line."
-  @type string str
-  @type single-float x
-  @type single-float y
-  @type single-float z
-  @type single-float size
-  (let ((em (gethash :em table)))
-    (loop for i from 0 below (length str)
-          for ch = (char str i)
-          for cvg = (gethash ch table)
-          for pvg = nil then cvg
-          do (when pvg
-               (incf x (float (* size (/ (- (zpb-ttf:kerning-offset
-                                              (vglyph-source pvg)
-                                              (vglyph-source cvg)
-                                              (gethash :font table)))
-                                              em)))))
-             (gtrans x y z)
 
-          if (null cvg)
-          do (format t "~A is not registed~%" ch)
-          else
-          do (render-glyph cvg)
-             (incf x (* size
-                        (+ spacing (float (/ (zpb-ttf:advance-width
-                                               (vglyph-source cvg)) em))))))))
-
-(defun draw-string (table str x y z size &key (color nil colored-p)
-                                              (spacing 0.0))
-  "Toy function to render string with set size, color, and spacing."
+(defun draw-string (vs x y z size &key (color nil colored-p))
+  "Toy function to render string with set size and color."
   (when colored-p
     (gcolor (elt color 0) (elt color 1)
             (elt color 2) (elt color 3)))
   (gsize size)
-  (render-string table str spacing x y z size))
-
+  (gtrans x y z)
+  (render-string vs))
