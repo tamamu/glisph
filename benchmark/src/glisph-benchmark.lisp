@@ -20,7 +20,7 @@
   (:default-initargs :title "GLisph Benchmark"
                      :width 800 :height 600
                      :mode '(:stencil :multisample)
-                     :tick-interval 1))
+                     :tick-interval 0))
 
 (defmethod glut:display-window :before ((w benchmark-window))
   (setf *font* (gli:open-font-loader "/usr/share/fonts/TTF/DroidSans.ttf"))
