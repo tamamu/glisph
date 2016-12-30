@@ -15,13 +15,13 @@
                :finalize
                :vglyph
                :make-glyph-table
-               :regist-glyph
+               :regist-glyphs
                :gcolor
                :gtrans
                :gscale
                :gsize
                :grotate
-               :render-glyph
+               :new-vstring
                :render-string
                :draw-string
                :open-font-loader
@@ -35,12 +35,15 @@
 (defvar *glyph-translation* nil)
 (defvar *glyph-scale* nil)
 (defvar *glyph-rotate* nil)
+(defvar +glyph-vertex-loc+ nil)
+(defvar +glyph-attrib-loc+ nil)
 (defvar *bounding-box-program* nil)
 (defvar *bounding-box-size* nil)
 (defvar *bounding-box-color* nil)
 (defvar *bounding-box-translation* nil)
 (defvar *bounding-box-scale* nil)
 (defvar *bounding-box-rotate* nil)
+(defvar +bounding-box-vertex-loc+ nil)
 
 ; Glyph-table
 ; :font := zpb-ttf:font
@@ -49,6 +52,15 @@
 
 (defstruct vglyph
   (source nil :type zpb-ttf::glyph)
+  (xmin 0.0 :type single-float)
+  (ymin 0.0 :type single-float)
+  (xmax 1.0 :type single-float)
+  (ymax 1.0 :type single-float)
+  (vertex nil :type array)
+  (count 0 :type fixnum))
+
+(defstruct vstring
+  (content "" :type string)
   (xmin 0.0 :type single-float)
   (ymin 0.0 :type single-float)
   (xmax 1.0 :type single-float)
@@ -96,8 +108,10 @@
                         0.0 0.0 0.0 1.0)))
     (setf *glyph-program* (create-program +glyph-vs+ +glyph-fs+))
     (gl:use-program *glyph-program*)
-    (gl:bind-attrib-location *glyph-program* 0 "vertex")
-    (gl:bind-attrib-location *glyph-program* 1 "attrib")
+;    (gl:bind-attrib-location *glyph-program* 0 "vertex")
+;    (gl:bind-attrib-location *glyph-program* 1 "attrib")
+    (setf +glyph-vertex-loc+ (gl:get-attrib-location *glyph-program* "vertex")
+          +glyph-attrib-loc+ (gl:get-attrib-location *glyph-program* "attrib"))
     (setf *glyph-size* (gl:get-uniform-location *glyph-program* "sizeMatrix"))
     (gl:uniform-matrix-4fv *glyph-size* imat)
     (setf *glyph-translation* (gl:get-uniform-location *glyph-program* "translationMatrix"))
@@ -106,11 +120,14 @@
     (gl:uniform-matrix-4fv *glyph-scale* imat)
     (setf *glyph-rotate* (gl:get-uniform-location *glyph-program* "rotateMatrix"))
     (gl:uniform-matrix-4fv *glyph-rotate* imat)
+    (gl:enable-vertex-attrib-array +glyph-vertex-loc+)
+    (gl:enable-vertex-attrib-array +glyph-attrib-loc+)
     (gl:use-program 0)
 
     (setf *bounding-box-program* (create-program +bounding-box-vs+ +bounding-box-fs+))
     (gl:use-program *bounding-box-program*)
-    (gl:bind-attrib-location *bounding-box-program* 0 "vertex")
+;    (gl:bind-attrib-location *bounding-box-program* 2 "vertex")
+    (setf +bounding-box-vertex-loc+ (gl:get-attrib-location *bounding-box-program* "vertex"))
     (setf *bounding-box-color* (gl:get-uniform-location *bounding-box-program* "color"))
     (gl:uniformf *bounding-box-color* 0.0 0.0 0.0 1.0)
     (setf *bounding-box-size* (gl:get-uniform-location *bounding-box-program* "sizeMatrix"))
@@ -121,6 +138,7 @@
     (gl:uniform-matrix-4fv *bounding-box-scale* imat)
     (setf *bounding-box-rotate* (gl:get-uniform-location *bounding-box-program* "rotateMatrix"))
     (gl:uniform-matrix-4fv *bounding-box-rotate* imat)
+    (gl:enable-vertex-attrib-array +bounding-box-vertex-loc+)
 
     (gl:use-program 0)
     t))
@@ -171,6 +189,51 @@
                        (aref pv (+ i 2)) (aref pv (+ i 3)) 0.5 0.5))))))
       (concatenate 'vector polygon curve)))
 
+(defun new-vstring (table str spacing)
+  (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
+         (count (loop for vg in vglyphs sum (vglyph-count vg))))
+    (let ((em (gethash :em table))
+          (font (gethash :font table))
+          (xmin (vglyph-xmin (car vglyphs)))
+          (xmax 0.0)
+          (ymin 0.0)
+          (ymax 1.0)
+          (vertex (make-array count :element-type 'single-float))
+          (buffer (gl:gen-buffer))
+          (box-buffer (gl:gen-buffer)))
+      (loop for cvg in vglyphs
+            for vv = (vglyph-vertex cvg)
+            for pvg = nil then cvg
+            with sx = 0
+            with stride = 0
+            do (when pvg
+                 (incf sx (float (/ (- (zpb-ttf:kerning-offset
+                                        (vglyph-source pvg)
+                                        (vglyph-source cvg)
+                                        font))
+                                    em))))
+            do (loop for j from 0 below (length vv) by 4
+                     do (setf (aref vertex (+ stride j)) (+ sx (aref vv j))
+                              (aref vertex (+ stride j 1)) (aref vv (+ j 1))
+                              (aref vertex (+ stride j 2)) (aref vv (+ j 2))
+                              (aref vertex (+ stride j 3)) (aref vv (+ j 3))))
+            do (incf sx (+ spacing (float (/ (zpb-ttf:advance-width
+                                              (vglyph-source cvg)) em))))
+            do (incf stride (length vv))
+            finally (setf xmax (+ sx (vglyph-xmax cvg))))
+      (setf ymin (loop for vg in vglyphs minimize (vglyph-ymin vg))
+            ymax (loop for vg in vglyphs maximize (vglyph-ymax vg)))
+      (gl:bind-buffer :array-buffer buffer)
+      (gl:buffer-data :array-buffer :static-draw
+                      (make-gl-array vertex))
+      (gl:bind-buffer :array-buffer 0)
+      (gl:bind-buffer :array-buffer box-buffer)
+      (gl:buffer-data :array-buffer :static-draw
+                      (make-gl-array (vector xmin ymax xmin ymin xmax ymax xmax ymin)))
+      (gl:bind-buffer :array-buffer 0)
+      (make-vstring :content str :xmin xmin :xmax xmax :ymin ymin :ymax ymax
+                    :buffer buffer :box-buffer box-buffer :count (/ count 4)))))
+
 (defmacro make-glyph-table (font)
   "Make glyphs cache table."
   `(let ((tbl (make-hash-table :test 'eq)))
@@ -183,32 +246,23 @@
           (bbox (zpb-ttf:bounding-box glyph))
           (em (gethash :em ,table))
           (vertex (vertex-fill glyph em))
-          (buffer (gl:gen-buffer))
-          (box-buffer (gl:gen-buffer))
           (xmin (float (/ (zpb-ttf:xmin bbox) em)))
           (ymin (float (/ (zpb-ttf:ymin bbox) em)))
           (xmax (float (/ (zpb-ttf:xmax bbox) em)))
           (ymax (float (/ (zpb-ttf:ymax bbox) em))))
-    (gl:bind-buffer :array-buffer buffer)
-    (gl:buffer-data :array-buffer :static-draw (make-gl-array vertex))
-    (gl:bind-buffer :array-buffer 0)
-    (gl:bind-buffer :array-buffer box-buffer)
-    (gl:buffer-data :array-buffer :static-draw
-      (make-gl-array (vector xmin ymax xmin ymin xmax ymin xmax ymax)))
-    (gl:bind-buffer :array-buffer 0)
-    (setf (gethash ,ch ,table) (make-vglyph :source glyph
-                                            :xmin xmin
-                                            :ymin ymin
-                                            :xmax xmax
-                                            :ymax ymax
-                                            :buffer buffer
-                                            :box-buffer box-buffer
-                                            :count (/ (length vertex) 4)))))
+     (setf (gethash ,ch ,table) (make-vglyph :source glyph
+                                             :vertex vertex
+                                             :xmin xmin
+                                             :ymin ymin
+                                             :xmax xmax
+                                             :ymax ymax
+                                             :count (length vertex)))))
 
-(defmacro regist-glyph (table ch)
-  "Regist a glyph of the character to glyph table."
-  `(when (null (gethash ,ch ,table))
-    (regist-glyph-helper ,table ,ch)))
+(defmacro regist-glyphs (table str)
+  "Regist glyphs of the string to glyph table."
+  `(loop for ch across ,str
+         when (null (gethash ch ,table))
+         do (regist-glyph-helper ,table ch)))
 
 (defun delete-glyph-table (table)
   "Delete font data from the table."
@@ -227,61 +281,82 @@
   (gl:uniformf *bounding-box-color* r g b a)
   (gl:use-program 0))
 
+(defvar *glyph-size-mat*
+  (matrix4f 1.0 0.0 0.0 0.0
+            0.0 1.0 0.0 0.0
+            0.0 0.0 1.0 0.0
+            0.0 0.0 0.0 1.0))
 (defun gsize (size)
   "Set the size matrix of glyphs."
-  (let ((mat (matrix4f size  0.0  0.0 0.0
-                        0.0 size  0.0 0.0
-                        0.0  0.0  1.0 0.0
-                        0.0  0.0  0.0 1.0)))
-    (gl:use-program *glyph-program*)
-    (gl:uniform-matrix-4fv *glyph-size* mat)
-    (gl:use-program 0)
-    (gl:use-program *bounding-box-program*)
-    (gl:uniform-matrix-4fv *bounding-box-size* mat)
-    (gl:use-program 0)))
+  (setf (aref *glyph-size-mat* 0) size
+        (aref *glyph-size-mat* 5) size)
+  (gl:use-program *glyph-program*)
+  (gl:uniform-matrix-4fv *glyph-size* *glyph-size-mat*)
+  (gl:use-program 0)
+  (gl:use-program *bounding-box-program*)
+  (gl:uniform-matrix-4fv *bounding-box-size* *glyph-size-mat*)
+  (gl:use-program 0))
 
+(defvar *glyph-trans-mat*
+  (matrix4f 1.0 0.0 0.0 0.0
+            0.0 1.0 0.0 0.0
+            0.0 0.0 1.0 0.0
+            0.0 0.0 0.0 1.0))
 (defun gtrans (x y z)
   "Set the translation matrix of glyphs."
-  (let ((mat (matrix4f 1.0 0.0 0.0 x
-                       0.0 1.0 0.0 y
-                       0.0 0.0 1.0 z
-                       0.0 0.0 0.0 1.0)))
-    (gl:use-program *glyph-program*)
-    (gl:uniform-matrix-4fv *glyph-translation* mat)
-    (gl:use-program 0)
-    (gl:use-program *bounding-box-program*)
-    (gl:uniform-matrix-4fv *bounding-box-translation* mat)
-    (gl:use-program 0)))
+  (setf (aref *glyph-trans-mat* 3) x
+        (aref *glyph-trans-mat* 7) y
+        (aref *glyph-trans-mat* 11)z)
+  (gl:use-program *glyph-program*)
+  (gl:uniform-matrix-4fv *glyph-translation* *glyph-trans-mat*)
+  (gl:use-program 0)
+  (gl:use-program *bounding-box-program*)
+  (gl:uniform-matrix-4fv *bounding-box-translation* *glyph-trans-mat*)
+  (gl:use-program 0))
 
+(defvar *glyph-scale-mat*
+  (matrix4f 1.0 0.0 0.0 0.0
+            0.0 1.0 0.0 0.0
+            0.0 0.0 1.0 0.0
+            0.0 0.0 0.0 1.0))
 (defun gscale (x y z)
   "Set the scale matrix of glyphs."
-  (let ((mat (matrix4f  x  0.0 0.0 0.0
-                       0.0  y  0.0 0.0
-                       0.0 0.0  z  0.0
-                       0.0 0.0 0.0 1.0)))
+  (setf (aref *glyph-scale-mat* 0) (float (/ 1 x))
+        (aref *glyph-scale-mat* 5) (float (/ 1 y))
+        (aref *glyph-scale-mat* 10)(float (/ 1 z)))
     (gl:use-program *glyph-program*)
-    (gl:uniform-matrix-4fv *glyph-scale* mat)
+    (gl:uniform-matrix-4fv *glyph-scale* *glyph-scale-mat*)
     (gl:use-program 0)
     (gl:use-program *bounding-box-program*)
-    (gl:uniform-matrix-4fv *bounding-box-scale* mat)
-    (gl:use-program 0)))
+    (gl:uniform-matrix-4fv *bounding-box-scale* *glyph-scale-mat*)
+    (gl:use-program 0))
 
+(defvar *glyph-rotate-mat*
+  (matrix4f 1.0 0.0 0.0 0.0
+            0.0 1.0 0.0 0.0
+            0.0 0.0 1.0 0.0
+            0.0 0.0 0.0 1.0))
 (defun grotate (x y z)
   "Set the rotate matrix of glyphs."
-  (let ((mat (matrix4f (* (cos y) (cos z)) (- (sin z)) (sin y) 0.0
-                       (sin z) (* (cos x) (cos z)) (- (sin x)) 0.0
-                       (- (sin y)) (sin x) (* (cos x) (cos y)) 1.0
-                       0.0 0.0 0.0 1.0)))
+  (setf (aref *glyph-rotate-mat* 0) (* (cos y) (cos z))
+        (aref *glyph-rotate-mat* 1) (- (sin z))
+        (aref *glyph-rotate-mat* 2) (sin y)
+        (aref *glyph-rotate-mat* 4) (sin z)
+        (aref *glyph-rotate-mat* 5) (* (cos x) (cos z))
+        (aref *glyph-rotate-mat* 6) (- (sin x))
+        (aref *glyph-rotate-mat* 8) (- (sin y))
+        (aref *glyph-rotate-mat* 9) (sin x)
+        (aref *glyph-rotate-mat* 10) (* (cos x) (cos y)))
     (gl:use-program *glyph-program*)
-    (gl:uniform-matrix-4fv *glyph-rotate* mat)
+    (gl:uniform-matrix-4fv *glyph-rotate* *glyph-rotate-mat*)
     (gl:use-program 0)
     (gl:use-program *bounding-box-program*)
-    (gl:uniform-matrix-4fv *bounding-box-rotate* mat)
-    (gl:use-program 0)))
+    (gl:uniform-matrix-4fv *bounding-box-rotate* *glyph-rotate-mat*)
+    (gl:use-program 0))
 
-(defun render-glyph (vg)
-  "Render the glyph."
-  @type vglyph vg
+(defun render-string (vs)
+  "Render the vertex string."
+  @type vstring vs
   @optimize (speed 3)
   @optimize (safety 0)
   @optimize (debug 0)
@@ -291,62 +366,34 @@
   (gl:stencil-op :keep :invert :invert)
   (gl:color-mask nil nil nil nil)
   (gl:use-program *glyph-program*)
-  (gl:enable-vertex-attrib-array 0)
-  (gl:enable-vertex-attrib-array 1)
-  (gl:bind-buffer :array-buffer (vglyph-buffer vg))
-  (gl:vertex-attrib-pointer 0 2 :float nil 16 0)
-  (gl:vertex-attrib-pointer 1 2 :float nil 16 8)
-  (gl:draw-arrays :triangles 0 (vglyph-count vg))
-  (gl:disable-vertex-attrib-array 0)
-  (gl:disable-vertex-attrib-array 1)
+;  (gl:enable-vertex-attrib-array 0)
+;  (gl:enable-vertex-attrib-array 1)
+  (gl:bind-buffer :array-buffer (vstring-buffer vs))
+  (gl:vertex-attrib-pointer +glyph-vertex-loc+ 2 :float nil 16 0)
+  (gl:vertex-attrib-pointer +glyph-attrib-loc+ 2 :float nil 16 8)
+  (gl:draw-arrays :triangles 0 (vstring-count vs))
+;  (gl:disable-vertex-attrib-array 0)
+;  (gl:disable-vertex-attrib-array 1)
   ;(gl:use-program 0)
   (gl:disable :sample-alpha-to-coverage)
   (gl:stencil-func :notequal 0 1)
   (gl:stencil-op :keep :keep :keep)
   (gl:color-mask t t t t)
   (gl:use-program *bounding-box-program*)
-  (gl:enable-vertex-attrib-array 0)
-  (gl:bind-buffer :array-buffer (vglyph-box-buffer vg))
-  (gl:vertex-attrib-pointer 0 2 :float nil 0 0)
-  (gl:draw-arrays :triangle-fan 0 4)
-  (gl:disable-vertex-attrib-array 0)
+;  (gl:enable-vertex-attrib-array 0)
+  (gl:bind-buffer :array-buffer (vstring-box-buffer vs))
+  (gl:vertex-attrib-pointer +bounding-box-vertex-loc+ 2 :float nil 0 0)
+  (gl:draw-arrays :triangle-strip 0 4)
+;  (gl:disable-vertex-attrib-array 0)
   (gl:use-program 0)
   (gl:disable :stencil-test))
 
-(defun render-string (table str spacing x y z size)
-  "Syntax sugar for rendering string in a single line."
-  @type string str
-  @type single-float x
-  @type single-float y
-  @type single-float z
-  @type single-float size
-  (let ((em (gethash :em table)))
-    (loop for i from 0 below (length str)
-          for ch = (char str i)
-          for cvg = (gethash ch table)
-          for pvg = nil then cvg
-          do (when pvg
-               (incf x (float (* size (/ (- (zpb-ttf:kerning-offset
-                                              (vglyph-source pvg)
-                                              (vglyph-source cvg)
-                                              (gethash :font table)))
-                                              em)))))
-             (gtrans x y z)
 
-          if (null cvg)
-          do (format t "~A is not registed~%" ch)
-          else
-          do (render-glyph cvg)
-             (incf x (* size
-                        (+ spacing (float (/ (zpb-ttf:advance-width
-                                               (vglyph-source cvg)) em))))))))
-
-(defun draw-string (table str x y z size &key (color nil colored-p)
-                                              (spacing 0.0))
-  "Toy function to render string with set size, color, and spacing."
+(defun draw-string (vs x y z size &key (color nil colored-p))
+  "Toy function to render string with set size and color."
   (when colored-p
     (gcolor (elt color 0) (elt color 1)
             (elt color 2) (elt color 3)))
   (gsize size)
-  (render-string table str spacing x y z size))
-
+  (gtrans x y z)
+  (render-string vs))

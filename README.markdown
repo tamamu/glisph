@@ -23,29 +23,29 @@ Load TTF font file and make glyph table.
 Then you can regist and draw glyphs!
 
 ```lisp
-;;;; in the case of CL-GLUT
-;;;; before display-window section
-;;;; :stencil and :multisample are required
+;; In the case of CL-GLUT
+;; Before display-window section
+;; :stencil and :multisample are required
 (glut:set-display-mode :stencil :multisample)
 
-;;;; before draw section
-(gli:regist-glyph *glyph-table* #\G)
-(gli:regist-glyph *glyph-table* #\l)
+;; Before draw section
+;; (gli:regist-glyphs glyph-table text spacing)
+(defvar *text-object* (gli:regist-glyphs *glyph-table* "Hello World!" 0.0))
 
-;;;; in draw section
-(gli:gcolor 1.0 0.0 0.0 0.0)
-(gli:gsize 2.0)
-(gli:gtrans -400.0 300.0 0.0)
-(gli:gscale 800.0 600.0 1.0)
+
+;; In draw section
+;; Viewport settings for GLisph
+(gli:gscale (/ width 2) (/ height 2) 1.0)
+
+;; Rotate
 (gli:grotate 0.0 0.0 0.5)
-(gli:render-glyph (gethash #\G *glyph-table*))
 
-;; or
+;; Draw
+(gli:draw-string *text-object*
+  -400.0 300.0 0.0    ; x y z
+  32.0                ; size
+  :color '(1 1 1 1))  ; '(r g b a)
 
-(gli:draw-string *glyph-table* "Gl"
-  150.0 -300.0 0.0
-	:color '(1 0.5 0.25)
-	:spacing 0.5)
 ```
 
 ## Dependencies

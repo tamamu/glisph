@@ -8,6 +8,7 @@
 (defvar *line-count* 42)
 (defvar *font* nil)
 (defvar *glyph-table* nil)
+(defvar *text-object* nil)
 (defvar *frame* 0)
 (defvar *count* 0)
 (defvar *last* 0)
@@ -19,16 +20,16 @@
   (:default-initargs :title "GLisph Benchmark"
                      :width 800 :height 600
                      :mode '(:stencil :multisample)
-                     :tick-interval 1))
+                     :tick-interval 0))
 
 (defmethod glut:display-window :before ((w benchmark-window))
   (setf *font* (gli:open-font-loader "/usr/share/fonts/TTF/DroidSans.ttf"))
 ;  (setf *font* (gli:open-font-loader "/path/to/freetype-gl/fonts/VeraMono.ttf"))
   (setf *glyph-table* (gli:make-glyph-table *font*))
-  (loop for ch across +text+
-        do (gli:regist-glyph *glyph-table* ch))
+  (gli:regist-glyphs *glyph-table* +text+)
   (gli:init)
-  (gli:gscale (float (/ 2 800)) (float (/ -2 600)) 1.0)
+  (setf *text-object* (gli:new-vstring *glyph-table* +text+ 0.0))
+  (gli:gscale 400 -300 1.0)
   (gl:clear-color 1.0 1.0 1.0 1.0)
   (setf *last* (glut:get :elapsed-time)))
 
@@ -53,10 +54,8 @@
       (glut:leave-main-loop)))
   (let ((x -390.0)
         (y -300.0))
-    (gli:gsize 12.0)
-    (gli:gcolor 0.0 0.0 0.0 1.0)
     (dotimes (i *line-count*)
-      (gli:render-string *glyph-table* +text+ 0.01 x y 0.0 12.0)
+      (gli:draw-string *text-object* x y 0.0 12.0)
       (incf y 14))
     (gl:flush)))
 
