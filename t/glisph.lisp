@@ -40,10 +40,10 @@
       (setf *origin-x* (- x *display-x*)
             *origin-y* (- y *display-y*)))
     (:wheel-down
-      (setf *zoom* (/ *zoom* 1.2))
+      (setf *zoom* (* *zoom* 1.2))
       (glut:post-redisplay))
     (:wheel-up
-      (setf *zoom* (* *zoom* 1.2))
+      (setf *zoom* (/ *zoom* 1.2))
       (glut:post-redisplay))))
 
 (defmethod glut:motion ((w test-window) x y)
@@ -52,7 +52,7 @@
   (glut:post-redisplay))
 
 (defmethod glut:reshape ((w test-window) width height)
-  (gl:viewport *display-x* (- *display-y*) width height)
+  (gl:viewport 0 0 width height)
   (gl:matrix-mode :projection)
   (gl:load-identity)
   (gl:ortho 0 width height 0 -1 1)
@@ -90,7 +90,7 @@
   (glut:post-redisplay))
 
 (defmethod glut:display ((w test-window))
-  (gl:viewport *display-x* (- *display-y*) *width* *height*)
+  (gl:viewport 0 0 *width* *height*)
   (gl:clear-color 0 0 0 1)
   (gl:clear-stencil 0)
   (gl:clear :color-buffer-bit :stencil-buffer-bit)
@@ -100,20 +100,20 @@
     (gl:vertex 300 0)
     (gl:vertex 300 300)
     (gl:vertex 0 300))
-  (gli:gscale (float (* *zoom* (/ 2 *width*)))
-              (float (* *zoom* (/ -2 *height*)))
+  (gli:gscale (float (* *zoom* (/ *width* 2)))
+              (float (* *zoom* (/ *height* -2)))
               1.0)
   (let* ((rad (* (coerce pi 'single-float) (/ *frame-count* 180)))
          (cosr (cos rad)))
     (gli:grotate 0.0 0.0 0.0)
     (loop for i from 0 below (length *text-en*)
           do (gli:draw-string (aref *text-en* i)
-                              -300.0 (+ -150.0 (* i 32.0)) 0.0 32.0
+                              (+ *display-x* -300.0) (+ *display-y* (+ -150.0 (* i 32.0))) 0.0 32.0
                               :color '(1 1 1 1)))
-;    (gli:grotate 0.0 0.0 rad)
+    (gli:grotate 0.0 0.0 rad)
     (loop for i from 0 below (length *text-ja*)
           do (gli:draw-string (aref *text-ja* i)
-                              (* -300.0 (+ cosr (* i 0.25))) (* i 32.0) 0.0 24.0
+                              (+ *display-x* (* -300.0 (+ cosr (* i 0.25)))) (+ *display-y* (* i 32.0)) 0.0 24.0
                               :color '(1 1 1 1))))
   (gl:flush))
 
