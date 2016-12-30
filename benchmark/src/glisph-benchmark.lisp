@@ -29,7 +29,7 @@
   (gli:regist-glyphs *glyph-table* +text+)
   (gli:init)
   (setf *text-object* (gli:new-vstring *glyph-table* +text+ 0.0))
-  (gli:gscale (float (/ 2 800)) (float (/ -2 600)) 1.0)
+  (gli:gscale 400 -300 1.0)
   (gl:clear-color 1.0 1.0 1.0 1.0)
   (setf *last* (glut:get :elapsed-time)))
 
