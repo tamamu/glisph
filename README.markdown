@@ -1,19 +1,23 @@
 # GLisph
 
+[![Quicklisp](http://quickdocs.org/badge/glisph.svg)](http://quickdocs.org/glisph/)
+
 ![Screen Shot](screenshot.gif)
 
-This is glyph rendering engine using OpenGL shaders.  
-It adopt vector based rendering with quadratic bezier curve, so it can draw only TTF format.  
+GLisph is a glyph rendering engine using OpenGL shader language.  
+The engine draws string clearly by vector based font rendering.  
+Currently, TrueType (TTF) is the only format that can draw.
 
 ## Usage
 
-First, initialize this library as below.
+First, initialize the engine as below.
 
 ```lisp
 (gli:init)
 ```
 
-Load TTF font file and make glyph table.
+Load TrueType font file and make glyph table.  
+Glyph table manages the contour points of the glyphs.
 
 ```lisp
 (defvar *font* (gli:open-font-loader "/path/to/display-font.ttf")
@@ -23,18 +27,16 @@ Load TTF font file and make glyph table.
 Then you can regist and draw glyphs!
 
 ```lisp
-;; In the case of CL-GLUT
+;; For CL-GLUT
 ;; Before display-window section
-;; :stencil and :multisample are required
+;; These display mode keywords are required
 (glut:set-display-mode :stencil :multisample)
 
 ;; Before draw section
-;; (gli:regist-glyphs glyph-table text spacing)
 (defvar *text-object* (gli:regist-glyphs *glyph-table* "Hello World!" 0.0))
 
-
 ;; In draw section
-;; Viewport settings for GLisph
+;; Viewport settings for GLisph context
 (gli:gscale (/ width 2) (/ height 2) 1.0)
 
 ;; Rotate
@@ -58,13 +60,22 @@ Then you can regist and draw glyphs!
 
 ## Installation
 
-```
-$ git clone https://github.com/tamamu/glisph.git
-```
+* Quicklisp
 
 ```lisp
-(require :glisph)
-(asdf:test-system :glisph) ;; test
+(ql:quickload :glisph)
+```
+
+* Roswell
+
+```bash
+$ ros install glisph
+```
+
+* Test
+
+```lisp
+(asdf:test-system :glisph)
 ```
 
 ## Author
@@ -73,7 +84,7 @@ $ git clone https://github.com/tamamu/glisph.git
 
 ## Copyright
 
-Copyright (c) 2016 Tamamu
+Copyright (c) 2017 Tamamu
 
 ## License
 
