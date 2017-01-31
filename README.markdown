@@ -4,9 +4,7 @@
 
 ![Screen Shot](screenshot.gif)
 
-GLisph is a glyph rendering engine using OpenGL shader language.  
-The engine draws string clearly by vector based font rendering.  
-Currently, TrueType (TTF) is the only format that can draw.
+GLisph is a glyph rendering engine using OpenGL shader language. The engine draws string clearly by vector based font rendering. Currently, TrueType (TTF) is the only format that can draw.
 
 ## Usage
 
