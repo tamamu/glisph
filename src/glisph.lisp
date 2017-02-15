@@ -9,8 +9,6 @@
                     :+glyph-fs+
                     :+bounding-box-vs+
                     :+bounding-box-fs+)
-      (:import-from :zpb-ttf
-                    :open-font-loader)
       (:export :init
                :finalize
                :vglyph
@@ -24,10 +22,11 @@
                :new-vstring
                :render-string
                :draw-string
-               :open-font-loader
                :delete-glyph-table))))
 (in-package :glisph)
 
+(cl-reexport:reexport-from :zpb-ttf
+                           :include '(:open-font-loader))
 (annot:enable-annot-syntax)
 
 (defvar *glyph-program* nil)
@@ -59,8 +58,11 @@
   (vertex nil :type array)
   (count 0 :type fixnum))
 
-(defstruct vstring
+(defstruct vcontext
+  (source nil :type hash-table)
   (content "" :type string)
+  (width 0.0 :type fixnum)
+  (height 0.0 :type fixnum)
   (xmin 0.0 :type single-float)
   (ymin 0.0 :type single-float)
   (xmax 1.0 :type single-float)
@@ -188,6 +190,17 @@
                        (aref pv i) (aref pv (+ i 1)) 0.5 0.5
                        (aref pv (+ i 2)) (aref pv (+ i 3)) 0.5 0.5))))))
       (concatenate 'vector polygon curve)))
+
+(defmacro context-change-glyph-table (context table)
+  `(setf (vcontext-source ,context) ,table))
+
+(defun context-calc-offset (context ch1 ch2)
+  "Calc offsets of kerning and advance width between two glyphs."
+  (let ((font ()))))
+
+(defun context-add-glyph (context ch x y)
+  
+)
 
 (defun new-vstring (table str spacing)
   (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
