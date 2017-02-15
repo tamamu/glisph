@@ -58,9 +58,9 @@
   (vertex nil :type array)
   (count 0 :type fixnum))
 
-(defstruct vcontext
-  (source nil :type hash-table)
-  (content "" :type string)
+(defstruct context
+  (glyph-table nil :type hash-table)
+  (vertex nil :type array)
   (width 0.0 :type fixnum)
   (height 0.0 :type fixnum)
   (xmin 0.0 :type single-float)
@@ -194,13 +194,25 @@
 (defmacro context-change-glyph-table (context table)
   `(setf (vcontext-source ,context) ,table))
 
-(defun context-calc-offset (context ch1 ch2)
+(defun context-calc-kerning (context glyph-1 glyph-2)
   "Calc offsets of kerning and advance width between two glyphs."
-  (let ((font ()))))
+  (let ((font (gethash :font (context-glyph-table context))))
+    (zpb-ttf:kerning-offset glyph-1 glyph-2 font)))
 
 (defun context-add-glyph (context ch x y)
-  
-)
+  (let* ((tbl (context-glyph-table context))
+         (cv (context-vertex context))
+         (glyph (gethash ch tbl))
+         (gv (vglyph-vertex glyph))
+         (gcnt (vglyph-count glyph))
+         (px (float (/ x (context-width context))))
+         (py (float (/ y (context-height context))))
+         (loop for i from 0 below gcnt
+               do (vector-push-extend-to cv
+                    (aref gv (* i 4))
+                    (aref gv (+ (* i 4) 1))
+                    (aref gv (+ (* i 4) 2))
+                    (aref gv (+ (* i 4) 3)))))))
 
 (defun new-vstring (table str spacing)
   (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
