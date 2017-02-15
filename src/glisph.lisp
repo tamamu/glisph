@@ -196,23 +196,36 @@
 
 (defun context-calc-kerning (context glyph-1 glyph-2)
   "Calc offsets of kerning and advance width between two glyphs."
-  (let ((font (gethash :font (context-glyph-table context))))
-    (zpb-ttf:kerning-offset glyph-1 glyph-2 font)))
+  (let ((tbl (context-glyph-table context))
+        (font (gethash :font tbl))
+        (em (gethash :em tbl)))
+    (float (/ (- (zpb-ttf:kerning-offset glyph-1 glyph-2 font))
+              em
+              (context-width context)))))
 
-(defun context-add-glyph (context ch x y)
-  (let* ((tbl (context-glyph-table context))
-         (cv (context-vertex context))
-         (glyph (gethash ch tbl))
+(defun context-add-glyph (context glyph x y)
+  (let* ((cv (context-vertex context))
          (gv (vglyph-vertex glyph))
          (gcnt (vglyph-count glyph))
          (px (float (/ x (context-width context))))
          (py (float (/ y (context-height context))))
          (loop for i from 0 below gcnt
                do (vector-push-extend-to cv
-                    (aref gv (* i 4))
-                    (aref gv (+ (* i 4) 1))
+                    (+ (aref gv (* i 4)) px)
+                    (+ (aref gv (+ (* i 4) 1)) py)
                     (aref gv (+ (* i 4) 2))
                     (aref gv (+ (* i 4) 3)))))))
+
+(defun context-draw-string (context str x y)
+  (let ((tbl (context-glyph-table context))
+        (px (float (/ x (context-width context))))
+        (py (float (/ y (context-height context)))))
+    (loop for ch across str
+          for vg = (gethash ch tbl)
+          for pvg = nil then vg
+          with aw = 0
+          when pvg do (incf aw (context-calc-kerning context vg pvg))
+          do (context-add-glyph context vg (+ x aw) y))))
 
 (defun new-vstring (table str spacing)
   (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
