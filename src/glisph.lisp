@@ -60,13 +60,11 @@
 
 (defstruct context
   (glyph-table nil :type hash-table)
-  (vertex nil :type array)
+  (vertex (make-array 0 :element-type 'single-float :adjustable t) :type array)
   (width 0.0 :type fixnum)
   (height 0.0 :type fixnum)
-  (xmin 0.0 :type single-float)
-  (ymin 0.0 :type single-float)
-  (xmax 1.0 :type single-float)
-  (ymax 1.0 :type single-float)
+  (x 0 :type fixnum)
+  (y 0 :type fixnum)
   (buffer nil)
   (box-buffer nil)
   (count 0 :type fixnum))
@@ -191,10 +189,10 @@
                        (aref pv (+ i 2)) (aref pv (+ i 3)) 0.5 0.5))))))
       (concatenate 'vector polygon curve)))
 
-(defmacro context-change-glyph-table (context table)
+(defmacro %change-glyph-table (context table)
   `(setf (vcontext-source ,context) ,table))
 
-(defun context-calc-kerning (context glyph-1 glyph-2)
+(defun %calc-kerning (context glyph-1 glyph-2)
   "Calc offsets of kerning and advance width between two glyphs."
   (let ((tbl (context-glyph-table context))
         (font (gethash :font tbl))
@@ -203,20 +201,26 @@
               em
               (context-width context)))))
 
-(defun context-add-glyph (context glyph x y)
-  (let* ((cv (context-vertex context))
-         (gv (vglyph-vertex glyph))
+(defun %calc-advance-width (context glyph)
+  (float (* (context-width context)
+            (/ (zpb-ttf:advance-width (vglyph-source glyph))
+               (gethash :em (context-glyph-table context))))))
+
+(defun %add-glyph (context vglyph x y)
+  (let* ((cv   (context-vertex context))
+         (gv   (vglyph-vertex glyph))
          (gcnt (vglyph-count glyph))
-         (px (float (/ x (context-width context))))
-         (py (float (/ y (context-height context))))
+         (px   (float (/ x (context-width context))))
+         (py   (float (/ y (context-height context))))
          (loop for i from 0 below gcnt
                do (vector-push-extend-to cv
                     (+ (aref gv (* i 4)) px)
                     (+ (aref gv (+ (* i 4) 1)) py)
                     (aref gv (+ (* i 4) 2))
-                    (aref gv (+ (* i 4) 3)))))))
+                    (aref gv (+ (* i 4) 3))))
+         (incf (context-count context) gcnt))))
 
-(defun context-draw-string (context str x y)
+(defun %draw-string (context str x y)
   (let ((tbl (context-glyph-table context))
         (px (float (/ x (context-width context))))
         (py (float (/ y (context-height context)))))
@@ -224,8 +228,16 @@
           for vg = (gethash ch tbl)
           for pvg = nil then vg
           with aw = 0
-          when pvg do (incf aw (context-calc-kerning context vg pvg))
-          do (context-add-glyph context vg (+ x aw) y))))
+          when pvg do (incf aw (%calc-kerning context vg pvg))
+          do (%add-glyph context vg (+ x aw) y)
+             (incf aw (%calc-advance-width context vg)))))
+
+(defun draw (glyph-table width height &body body)
+  (let ((context (make-context :glyph-table glyph-table
+                               :width width
+                               :height height)))
+
+))
 
 (defun new-vstring (table str spacing)
   (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
