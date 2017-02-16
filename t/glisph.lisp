@@ -100,22 +100,35 @@
     (gl:vertex 300 0)
     (gl:vertex 300 300)
     (gl:vertex 0 300))
-  (gli:gscale (float (* *zoom* (/ *width* 2)))
-              (float (* *zoom* (/ *height* -2)))
-              1.0)
   (let* ((rad (* (coerce pi 'single-float) (/ *frame-count* 180)))
          (cosr (cos rad)))
-    (gli:grotate 0.0 0.0 0.0)
-    (loop for i from 0 below (length *text-en*)
-          do (gli:draw-string (aref *text-en* i)
-                              (+ *display-x* -300.0) (+ *display-y* (+ -150.0 (* i 32.0))) 0.0 32.0
-                              :color '(1 1 1 1)))
-    (gli:grotate 0.0 0.0 rad)
-    (loop for i from 0 below (length *text-ja*)
-          do (gli:draw-string (aref *text-ja* i)
-                              (+ *display-x* (* -300.0 (+ cosr (* i 0.25)))) (+ *display-y* (* i 32.0)) 0.0 24.0
-                              :color '(1 1 1 1))))
-  (gl:flush))
+    (gli:with-context *width* *height*
+      (gli:set-rotate 0.0 0.0 0.0)
+      (gli:set-table *glyph-table-en*)
+      (gli:set-color 0 0 0)
+      (gli:draw
+       '(:x 72 :y 150 :size 32 "Hello world!"
+         :x 24 :y 300 :size 12 "GLisph"))
+      (gli:draw
+       `(:size 32
+         ,@(loop for i from 0 below (length ,*text-en*)
+                 collect :x
+                 collect (- ,*display-x* 300.0)
+                 collect :y
+                 collect (+ ,*display-y* (- (* i 32.0) 150.0))
+                 collect (aref ,*text-en* i))))
+      (gli:set-rotate 0.0 0.0 rad)
+      (gli:set-table *glyph-table-ja*)
+      (gli:set-color 1.0 1.0 1.0)
+      (gli:draw
+       `(:size 24
+         ,@(loop for i from 0 below (length ,*text-ja*)
+                 collect :x
+                 collect (+ *display-x*
+                            (* -300.0 (+ ,cosr (* i 0.25))))
+                 collect :y
+                 collect (+ *display-y* (* i 32.0)))))
+      (gl:flush))
 
 (defmethod glut:close ((w test-window))
   (gli:delete-glyph-table *glyph-table-en*)
