@@ -65,6 +65,7 @@
   (height 0.0 :type fixnum)
   (x 0 :type fixnum)
   (y 0 :type fixnum)
+  (size 0 :type fixnum)
   (buffer nil)
   (box-buffer nil)
   (count 0 :type fixnum))
@@ -232,12 +233,43 @@
           do (%add-glyph context vg (+ x aw) y)
              (incf aw (%calc-advance-width context vg)))))
 
-(defun draw (glyph-table width height &body body)
-  (let ((context (make-context :glyph-table glyph-table
-                               :width width
-                               :height height)))
+(defmacro %set-x (context x)
+  `(setf (context-x ,context) ,x))
 
-))
+(defmacro %set-y (context y)
+  `(setf (context-y ,context) ,y))
+
+(defmacro %set-size (context size)
+  `(setf (context-size ,context) ,size))
+
+(defmacro with-context (context &body body)
+  `(let ((%context ,context))
+    ,@body))
+
+(defmacro draw (&rest key-vals)
+  (let ((proc (list)))
+    (loop for e in key-vals
+          with cmd = nil
+          if (and (keywordp e)
+                  (not (null cmd)))
+          do (push (reverse cmd) proc)
+             (setf cmd nil)
+          if (keywordp e)
+          do (push (case e
+                     (:x '%set-x)
+                     (:y '%set-y)
+                     (:size '%set-size))
+                   cmd)
+             (push '%context cmd)
+          else if (stringp e)
+          do (push `(%draw-string %context ,e) proc)
+             (setf cmd nil)
+          else
+          do (push e cmd)
+             (push (macroexpand (reverse cmd)) proc)
+             (setf cmd nil)
+          finally (unless (null cmd) (push (reverse cmd) proc)))
+    `(progn ,@(reverse proc))))
 
 (defun new-vstring (table str spacing)
   (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
