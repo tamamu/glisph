@@ -4,18 +4,17 @@
 
 ![Screen Shot](screenshot.gif)
 
-GLisph is a glyph rendering engine using OpenGL shader language. The engine draws string clearly by vector based font rendering. Currently, TrueType (TTF) is the only format that can draw.
+GLisph is a glyph rendering engine using OpenGL shader language. The engine draws string clearly by vector based font rendering on an OpenGL context. TrueType (TTF) is the only drawable format currently.
 
 ## Usage
 
-First, initialize the engine as below.
+Initialize the engine as below first.
 
 ```lisp
 (gli:init)
 ```
 
-Load TrueType font file and make glyph table.  
-Glyph table manages the contour points of the glyphs.
+Load TrueType font file and make glyph table. Glyph table manages the contour points of the glyphs.
 
 ```lisp
 (defvar *font* (gli:open-font-loader "/path/to/display-font.ttf")
@@ -25,22 +24,19 @@ Glyph table manages the contour points of the glyphs.
 Then you can regist and draw glyphs!
 
 ```lisp
-;; For CL-GLUT
-;; Before display-window section
-;; These display mode keywords are required
+;;; For CL-GLUT, you should require these display mode keywords before display-window section.
 (glut:set-display-mode :stencil :multisample)
 
 ;; Before draw section
 (defvar *text-object* (gli:regist-glyphs *glyph-table* "Hello World!" 0.0))
 
-;; In draw section
-;; Viewport settings for GLisph context
+;;; In draw section, you can set some parameters to draw for GLisph context.
 (gli:gscale (/ width 2) (/ height 2) 1.0)
 
-;; Rotate
+;;; This is rotation example.
 (gli:grotate 0.0 0.0 0.5)
 
-;; Draw
+;; Draw function
 (gli:draw-string *text-object*
   -400.0 300.0 0.0    ; x y z
   32.0                ; size
