@@ -19,6 +19,7 @@
   :depends-on (:cl-annot
                :cl-opengl
                :cl-glu
+               :cl-reexport
                :zpb-ttf)
   :components ((:module "src"
                 :components

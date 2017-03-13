@@ -12,13 +12,12 @@
 precision mediump float;
 attribute vec2 vertex;
 attribute vec2 attrib;
-uniform mat4 sizeMatrix;
 uniform mat4 translationMatrix;
 uniform mat4 scaleMatrix;
 uniform mat4 rotateMatrix;
 varying vec2 p;
 void main(void) {
-  gl_Position = scaleMatrix * translationMatrix * rotateMatrix * sizeMatrix * vec4(vertex.x, 1.0-vertex.y, 0.0, 1.0);
+  gl_Position = scaleMatrix * translationMatrix * rotateMatrix * vec4(vertex.x, 1.0-vertex.y, 0.0, 1.0);
   p = attrib;
 }
 ")
@@ -49,12 +48,11 @@ void main(void) {
 (defvar +bounding-box-vs+ "#version 130
 precision mediump float;
 attribute vec2 vertex;
-uniform mat4 sizeMatrix;
 uniform mat4 translationMatrix;
 uniform mat4 scaleMatrix;
 uniform mat4 rotateMatrix;
 void main(void) {
-    gl_Position = scaleMatrix * translationMatrix * rotateMatrix * sizeMatrix * vec4(vertex.x, 1.0-vertex.y, 0.0, 1.0);
+    gl_Position = scaleMatrix * translationMatrix * rotateMatrix * vec4(vertex.x, 1.0-vertex.y, 0.0, 1.0);
 }
 ")
 
