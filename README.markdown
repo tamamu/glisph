@@ -11,7 +11,7 @@ GLisph is a glyph rendering engine using OpenGL shader language. The engine draw
 First, initialize the engine as below.
 
 ```lisp
-(gli:init)
+(gli:init 800 600)
 ```
 
 Load TrueType font file and make glyph table.  
@@ -31,20 +31,22 @@ Then you can regist and draw glyphs!
 (glut:set-display-mode :stencil :multisample)
 
 ;; Before draw section
-(defvar *text-object* (gli:regist-glyphs *glyph-table* "Hello World!" 0.0))
+(defvar *text-buffer*
+  (gli:draw *glyph-table*
+	  '(:x 120 :y 40 :size 20
+	    :text "Hello World!"
+			:y 64
+			:text "Common Lisp")))
 
 ;; In draw section
 ;; Viewport settings for GLisph context
-(gli:gscale (/ width 2) (/ height 2) 1.0)
+(gli:gcolor 0.8 0.2 0.5)
 
 ;; Rotate
 (gli:grotate 0.0 0.0 0.5)
 
-;; Draw
-(gli:draw-string *text-object*
-  -400.0 300.0 0.0    ; x y z
-  32.0                ; size
-  :color '(1 1 1 1))  ; '(r g b a)
+;; Render
+(gli:render *text-buffer*)
 
 ```
 
