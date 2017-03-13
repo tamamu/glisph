@@ -11,17 +11,15 @@
                     :+bounding-box-fs+)
       (:export :init
                :finalize
-               :vglyph
+               :set-render-size
                :make-glyph-table
                :regist-glyphs
                :gcolor
                :gtrans
                :gscale
-               :gsize
                :grotate
-               :new-vstring
-               :render-string
-               :draw-string
+               :draw
+               :render
                :delete-glyph-table))))
 (in-package :glisph)
 
@@ -29,15 +27,16 @@
                            :include '(:open-font-loader))
 (annot:enable-annot-syntax)
 
+(defvar *render-width* 640.0)
+(defvar *render-height* 480.0)
+
 (defvar *glyph-program* nil)
-(defvar *glyph-size* nil)
 (defvar *glyph-translation* nil)
 (defvar *glyph-scale* nil)
 (defvar *glyph-rotate* nil)
 (defvar +glyph-vertex-loc+ nil)
 (defvar +glyph-attrib-loc+ nil)
 (defvar *bounding-box-program* nil)
-(defvar *bounding-box-size* nil)
 (defvar *bounding-box-color* nil)
 (defvar *bounding-box-translation* nil)
 (defvar *bounding-box-scale* nil)
@@ -60,14 +59,18 @@
 
 (defstruct context
   (glyph-table nil :type hash-table)
-  (vertex (make-array 0 :element-type 'single-float :adjustable t) :type array)
-  (width 0.0 :type fixnum)
-  (height 0.0 :type fixnum)
+  (vertex (make-array 0 :element-type 'single-float :fill-pointer 0 :adjustable t) :type array)
   (x 0 :type fixnum)
   (y 0 :type fixnum)
-  (size 0 :type fixnum)
-  (buffer nil)
-  (box-buffer nil)
+  (size 10 :type fixnum)
+  (letter-spacing 0 :type fixnum)
+  (count 0 :type fixnum))
+
+(defstruct text-buffer
+  (width 0.0 :type float)
+  (height 0.0 :type float)
+  (polygon-buffer nil)
+  (fill-buffer nil)
   (count 0 :type fixnum))
 
 (defun create-program (vsource fsource)
@@ -100,7 +103,7 @@
                                      ,i ,j ,k ,l
                                      ,m ,n ,o ,p)))
 
-(defun init ()
+(defun init (&optional (width 640) (height 480))
   "Initialize GLisph engine.
    Please call this function before draw glyphs."
   (let ((imat (matrix4f 1.0 0.0 0.0 0.0
@@ -109,12 +112,8 @@
                         0.0 0.0 0.0 1.0)))
     (setf *glyph-program* (create-program +glyph-vs+ +glyph-fs+))
     (gl:use-program *glyph-program*)
-;    (gl:bind-attrib-location *glyph-program* 0 "vertex")
-;    (gl:bind-attrib-location *glyph-program* 1 "attrib")
     (setf +glyph-vertex-loc+ (gl:get-attrib-location *glyph-program* "vertex")
           +glyph-attrib-loc+ (gl:get-attrib-location *glyph-program* "attrib"))
-    (setf *glyph-size* (gl:get-uniform-location *glyph-program* "sizeMatrix"))
-    (gl:uniform-matrix-4fv *glyph-size* imat)
     (setf *glyph-translation* (gl:get-uniform-location *glyph-program* "translationMatrix"))
     (gl:uniform-matrix-4fv *glyph-translation* imat)
     (setf *glyph-scale* (gl:get-uniform-location *glyph-program* "scaleMatrix"))
@@ -127,12 +126,9 @@
 
     (setf *bounding-box-program* (create-program +bounding-box-vs+ +bounding-box-fs+))
     (gl:use-program *bounding-box-program*)
-;    (gl:bind-attrib-location *bounding-box-program* 2 "vertex")
     (setf +bounding-box-vertex-loc+ (gl:get-attrib-location *bounding-box-program* "vertex"))
     (setf *bounding-box-color* (gl:get-uniform-location *bounding-box-program* "color"))
     (gl:uniformf *bounding-box-color* 0.0 0.0 0.0 1.0)
-    (setf *bounding-box-size* (gl:get-uniform-location *bounding-box-program* "sizeMatrix"))
-    (gl:uniform-matrix-4fv *bounding-box-size* imat)
     (setf *bounding-box-translation* (gl:get-uniform-location *bounding-box-program* "translationMatrix"))
     (gl:uniform-matrix-4fv *bounding-box-translation* imat)
     (setf *bounding-box-scale* (gl:get-uniform-location *bounding-box-program* "scaleMatrix"))
@@ -142,6 +138,7 @@
     (gl:enable-vertex-attrib-array +bounding-box-vertex-loc+)
 
     (gl:use-program 0)
+    (set-render-size width height)
     t))
 
 (defun finalize ()
@@ -149,6 +146,12 @@
    Please call this function before exit program."
   (gl:delete-program *glyph-program*)
   (gl:delete-program *bounding-box-program*))
+
+(defun set-render-size (width height)
+  (setf *render-width* (float width)
+        *render-height* (float height))
+  (gscale 1 1 1)
+  (gtrans 0.0 0.0 0.0))
 
 (defmacro make-gl-array (data)
   `(let* ((len (length ,data))
@@ -190,65 +193,72 @@
                        (aref pv (+ i 2)) (aref pv (+ i 3)) 0.5 0.5))))))
       (concatenate 'vector polygon curve)))
 
-(defmacro %change-glyph-table (context table)
-  `(setf (vcontext-source ,context) ,table))
+@export
+(defmacro %set-glyph-table (context table)
+  `(setf (context-source ,context) ,table))
 
-(defun %calc-kerning (context glyph-1 glyph-2)
+(defun %calc-kerning (context vglyph-1 vglyph-2)
   "Calc offsets of kerning and advance width between two glyphs."
-  (let ((tbl (context-glyph-table context))
+  (let* ((tbl (context-glyph-table context))
         (font (gethash :font tbl))
         (em (gethash :em tbl)))
-    (float (/ (- (zpb-ttf:kerning-offset glyph-1 glyph-2 font))
-              em
-              (context-width context)))))
+    (float (/ (- (zpb-ttf:kerning-offset (vglyph-source vglyph-1)
+                                         (vglyph-source vglyph-2)
+                                         font))
+              em))))
 
 (defun %calc-advance-width (context glyph)
-  (float (* (context-width context)
-            (/ (zpb-ttf:advance-width (vglyph-source glyph))
-               (gethash :em (context-glyph-table context))))))
+  (float (/ (zpb-ttf:advance-width (vglyph-source glyph))
+               (gethash :em (context-glyph-table context)))))
 
 (defun %add-glyph (context vglyph x y)
   (let* ((cv   (context-vertex context))
-         (gv   (vglyph-vertex glyph))
-         (gcnt (vglyph-count glyph))
-         (px   (float (/ x (context-width context))))
-         (py   (float (/ y (context-height context))))
-         (loop for i from 0 below gcnt
-               do (vector-push-extend-to cv
-                    (+ (aref gv (* i 4)) px)
-                    (+ (aref gv (+ (* i 4) 1)) py)
-                    (aref gv (+ (* i 4) 2))
-                    (aref gv (+ (* i 4) 3))))
-         (incf (context-count context) gcnt))))
+         (size (context-size context))
+         (gv   (vglyph-vertex vglyph))
+         (gcnt (vglyph-count vglyph)))
+    (loop for i from 0 below gcnt by 4
+          do (vector-push-extend-to cv
+             (+ (* size (aref gv i)) x)
+             (+ (* size (- 1.0 (aref gv (+ i 1)))) y)
+             (aref gv (+ i 2))
+             (aref gv (+ i 3))))
+    (incf (context-count context) gcnt)))
 
-(defun %draw-string (context str x y)
+@export
+(defun %draw-string (context str)
   (let ((tbl (context-glyph-table context))
-        (px (float (/ x (context-width context))))
-        (py (float (/ y (context-height context)))))
+        (x (float (context-x context)))
+        (y (float (context-y context)))
+        (size (float (context-size context)))
+        (ls (float (context-letter-spacing context))))
     (loop for ch across str
           for vg = (gethash ch tbl)
           for pvg = nil then vg
           with aw = 0
-          when pvg do (incf aw (%calc-kerning context vg pvg))
+          when pvg do (incf aw (* size (%calc-kerning context vg pvg)))
           do (%add-glyph context vg (+ x aw) y)
-             (incf aw (%calc-advance-width context vg)))))
+             (incf aw (+ ls (* size (%calc-advance-width context vg)))))))
 
+@export
 (defmacro %set-x (context x)
   `(setf (context-x ,context) ,x))
 
+@export
 (defmacro %set-y (context y)
   `(setf (context-y ,context) ,y))
 
+@export
 (defmacro %set-size (context size)
   `(setf (context-size ,context) ,size))
 
-(defmacro with-context (context &body body)
-  `(let ((%context ,context))
-    ,@body))
+@export
+(defmacro %set-letter-spacing (context width)
+  `(setf (context-letter-spacing ,context) ,width))
 
-(defmacro draw (&rest key-vals)
+@export
+(defmacro draw (glyph-table proc-list)
   (let ((proc (list)))
-    (loop for e in key-vals
+    (loop for e in (eval proc-list)
           with cmd = nil
           if (and (keywordp e)
                   (not (null cmd)))
@@ -258,63 +268,36 @@
           do (push (case e
                      (:x '%set-x)
                      (:y '%set-y)
-                     (:size '%set-size))
+                     (:size '%set-size)
+                     (:spacing '%set-letter-spacing)
+                     (:glyph-table '%set-glyph-table)
+                     (:text '%draw-string))
                    cmd)
              (push '%context cmd)
-          else if (stringp e)
-          do (push `(%draw-string %context ,e) proc)
-             (setf cmd nil)
           else
           do (push e cmd)
              (push (macroexpand (reverse cmd)) proc)
              (setf cmd nil)
           finally (unless (null cmd) (push (reverse cmd) proc)))
-    `(progn ,@(reverse proc))))
-
-(defun new-vstring (table str spacing)
-  (let* ((vglyphs (loop for ch across str collect (gethash ch table)))
-         (count (loop for vg in vglyphs sum (vglyph-count vg))))
-    (let ((em (gethash :em table))
-          (font (gethash :font table))
-          (xmin (vglyph-xmin (car vglyphs)))
-          (xmax 0.0)
-          (ymin 0.0)
-          (ymax 1.0)
-          (vertex (make-array count :element-type 'single-float))
-          (buffer (gl:gen-buffer))
-          (box-buffer (gl:gen-buffer)))
-      (loop for cvg in vglyphs
-            for vv = (vglyph-vertex cvg)
-            for pvg = nil then cvg
-            with sx = 0
-            with stride = 0
-            do (when pvg
-                 (incf sx (float (/ (- (zpb-ttf:kerning-offset
-                                        (vglyph-source pvg)
-                                        (vglyph-source cvg)
-                                        font))
-                                    em))))
-            do (loop for j from 0 below (length vv) by 4
-                     do (setf (aref vertex (+ stride j)) (+ sx (aref vv j))
-                              (aref vertex (+ stride j 1)) (aref vv (+ j 1))
-                              (aref vertex (+ stride j 2)) (aref vv (+ j 2))
-                              (aref vertex (+ stride j 3)) (aref vv (+ j 3))))
-            do (incf sx (+ spacing (float (/ (zpb-ttf:advance-width
-                                              (vglyph-source cvg)) em))))
-            do (incf stride (length vv))
-            finally (setf xmax (+ sx (vglyph-xmax cvg))))
-      (setf ymin (loop for vg in vglyphs minimize (vglyph-ymin vg))
-            ymax (loop for vg in vglyphs maximize (vglyph-ymax vg)))
-      (gl:bind-buffer :array-buffer buffer)
-      (gl:buffer-data :array-buffer :static-draw
-                      (make-gl-array vertex))
-      (gl:bind-buffer :array-buffer 0)
-      (gl:bind-buffer :array-buffer box-buffer)
-      (gl:buffer-data :array-buffer :static-draw
-                      (make-gl-array (vector xmin ymax xmin ymin xmax ymax xmax ymin)))
-      (gl:bind-buffer :array-buffer 0)
-      (make-vstring :content str :xmin xmin :xmax xmax :ymin ymin :ymax ymax
-                    :buffer buffer :box-buffer box-buffer :count (/ count 4)))))
+    `(let ((%context (make-context :glyph-table ,glyph-table)))
+      ,@(reverse proc)
+      (let ((xmax *render-width*)
+            (ymax *render-height*)
+            (polygon-buffer (gl:gen-buffer))
+            (fill-buffer (gl:gen-buffer)))
+        (gl:bind-buffer :array-buffer polygon-buffer)
+        (gl:buffer-data :array-buffer :static-draw
+                        (make-gl-array (context-vertex %context)))
+        (gl:bind-buffer :array-buffer 0)
+        (gl:bind-buffer :array-buffer fill-buffer)
+        (gl:buffer-data :array-buffer :static-draw
+                        (make-gl-array (vector 0.0 ymax 0.0 0.0 xmax ymax xmax 0.0)))
+        (gl:bind-buffer :array-buffer 0)
+        (make-text-buffer :polygon-buffer polygon-buffer
+                          :fill-buffer fill-buffer
+                          :width *render-width*
+                          :height *render-height*
+                          :count (/ (context-count %context) 4))))))
 
 (defmacro make-glyph-table (font)
   "Make glyphs cache table."
@@ -341,13 +324,13 @@
                                              :count (length vertex)))))
 
 (defmacro regist-glyphs (table str)
-  "Regist glyphs of the string to glyph table."
+  "Regist glyphs of the string to the glyph table."
   `(loop for ch across ,str
          when (null (gethash ch ,table))
          do (regist-glyph-helper ,table ch)))
 
 (defun delete-glyph-table (table)
-  "Delete font data from the table."
+  "Delete font data from the glyph table."
   (zpb-ttf:close-font-loader (gethash :font table))
   #|
   (loop for key being each hash-key of table
@@ -363,21 +346,6 @@
   (gl:uniformf *bounding-box-color* r g b a)
   (gl:use-program 0))
 
-(defvar *glyph-size-mat*
-  (matrix4f 1.0 0.0 0.0 0.0
-            0.0 1.0 0.0 0.0
-            0.0 0.0 1.0 0.0
-            0.0 0.0 0.0 1.0))
-(defun gsize (size)
-  "Set the size matrix of glyphs."
-  (setf (aref *glyph-size-mat* 0) size
-        (aref *glyph-size-mat* 5) size)
-  (gl:use-program *glyph-program*)
-  (gl:uniform-matrix-4fv *glyph-size* *glyph-size-mat*)
-  (gl:use-program 0)
-  (gl:use-program *bounding-box-program*)
-  (gl:uniform-matrix-4fv *bounding-box-size* *glyph-size-mat*)
-  (gl:use-program 0))
 
 (defvar *glyph-trans-mat*
   (matrix4f 1.0 0.0 0.0 0.0
@@ -386,9 +354,9 @@
             0.0 0.0 0.0 1.0))
 (defun gtrans (x y z)
   "Set the translation matrix of glyphs."
-  (setf (aref *glyph-trans-mat* 3) x
-        (aref *glyph-trans-mat* 7) y
-        (aref *glyph-trans-mat* 11)z)
+  (setf (aref *glyph-trans-mat* 3) (+ (float (- (/ *render-width* 2))) x)
+        (aref *glyph-trans-mat* 7) (- (float (/ *render-height* 2)) y)
+        (aref *glyph-trans-mat* 11) z)
   (gl:use-program *glyph-program*)
   (gl:uniform-matrix-4fv *glyph-translation* *glyph-trans-mat*)
   (gl:use-program 0)
@@ -403,8 +371,8 @@
             0.0 0.0 0.0 1.0))
 (defun gscale (x y z)
   "Set the scale matrix of glyphs."
-  (setf (aref *glyph-scale-mat* 0) (float (/ 1 x))
-        (aref *glyph-scale-mat* 5) (float (/ 1 y))
+  (setf (aref *glyph-scale-mat* 0) (float (/ 1 (* x (/ *render-width* 2))))
+        (aref *glyph-scale-mat* 5) (float (/ 1 (* y (/ *render-height* 2))))
         (aref *glyph-scale-mat* 10)(float (/ 1 z)))
     (gl:use-program *glyph-program*)
     (gl:uniform-matrix-4fv *glyph-scale* *glyph-scale-mat*)
@@ -436,9 +404,9 @@
     (gl:uniform-matrix-4fv *bounding-box-rotate* *glyph-rotate-mat*)
     (gl:use-program 0))
 
-(defun render-string (vs)
-  "Render the vertex string."
-  @type vstring vs
+(defun render (buffer)
+  "Render the text buffer."
+  @type text-buffer buffer
   @optimize (speed 3)
   @optimize (safety 0)
   @optimize (debug 0)
@@ -450,10 +418,10 @@
   (gl:use-program *glyph-program*)
 ;  (gl:enable-vertex-attrib-array 0)
 ;  (gl:enable-vertex-attrib-array 1)
-  (gl:bind-buffer :array-buffer (vstring-buffer vs))
+  (gl:bind-buffer :array-buffer (text-buffer-polygon-buffer buffer))
   (gl:vertex-attrib-pointer +glyph-vertex-loc+ 2 :float nil 16 0)
   (gl:vertex-attrib-pointer +glyph-attrib-loc+ 2 :float nil 16 8)
-  (gl:draw-arrays :triangles 0 (vstring-count vs))
+  (gl:draw-arrays :triangles 0 (text-buffer-count buffer))
 ;  (gl:disable-vertex-attrib-array 0)
 ;  (gl:disable-vertex-attrib-array 1)
   ;(gl:use-program 0)
@@ -463,19 +431,10 @@
   (gl:color-mask t t t t)
   (gl:use-program *bounding-box-program*)
 ;  (gl:enable-vertex-attrib-array 0)
-  (gl:bind-buffer :array-buffer (vstring-box-buffer vs))
+  (gl:bind-buffer :array-buffer (text-buffer-fill-buffer buffer))
   (gl:vertex-attrib-pointer +bounding-box-vertex-loc+ 2 :float nil 0 0)
   (gl:draw-arrays :triangle-strip 0 4)
 ;  (gl:disable-vertex-attrib-array 0)
   (gl:use-program 0)
   (gl:disable :stencil-test))
 
-
-(defun draw-string (vs x y z size &key (color nil colored-p))
-  "Toy function to render string with set size and color."
-  (when colored-p
-    (gcolor (elt color 0) (elt color 1)
-            (elt color 2) (elt color 3)))
-  (gsize size)
-  (gtrans x y z)
-  (render-string vs))
