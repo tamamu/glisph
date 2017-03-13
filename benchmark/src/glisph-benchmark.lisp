@@ -4,6 +4,8 @@
   (:export :window-main))
 (in-package :glisph-benchmark)
 
+;; Not working, work in progress!
+
 (defparameter +text+ "A Quick Brown Fox Jumps Over The Lazy Dog 0123456789 A Quick Brown Fox Jumps Over The Lazy Dog 0123456789 ")
 (defvar *line-count* 42)
 (defvar *font* nil)
